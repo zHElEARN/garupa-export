@@ -1,6 +1,6 @@
 package com.zhelearn.garupaexport.capture.data
 
-internal data class CapturedResponse(
+internal class CapturedResponse(
     val sessionId: String,
     val body: ByteArray,
     val contentEncoding: String?,

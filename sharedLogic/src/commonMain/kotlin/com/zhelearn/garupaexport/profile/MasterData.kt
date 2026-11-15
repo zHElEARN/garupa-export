@@ -16,8 +16,6 @@ data class MasterCard(
 )
 
 class MasterData private constructor(
-    val gameVersion: String,
-    val sourceDate: String,
     val cards: Map<Int, MasterCard>,
 ) {
     companion object {
@@ -40,11 +38,7 @@ class MasterData private constructor(
                 id to result
             }.toMap()
             require(cards.isNotEmpty()) { "master 卡牌映射为空" }
-            return MasterData(
-                root.getValue("gameVersion").jsonPrimitive.content,
-                root.getValue("sourceDate").jsonPrimitive.content,
-                cards,
-            )
+            return MasterData(cards)
         }
     }
 }

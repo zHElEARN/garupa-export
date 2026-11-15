@@ -11,7 +11,7 @@ import java.util.Locale
 internal object Http1 {
     private const val MAX_HEADER = 64 * 1024
 
-    data class Head(val startLine: String, val headers: Map<String, List<String>>, val raw: ByteArray) {
+    class Head(val startLine: String, val headers: Map<String, List<String>>, val raw: ByteArray) {
         fun header(name: String): String? = headers[name.lowercase(Locale.ROOT)]?.joinToString(",")
         val status: Int get() = startLine.split(' ', limit = 3).getOrNull(1)?.toIntOrNull()
             ?: throw IllegalArgumentException("Invalid HTTP status line")

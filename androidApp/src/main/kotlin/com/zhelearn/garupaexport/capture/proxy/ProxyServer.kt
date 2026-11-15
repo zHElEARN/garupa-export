@@ -84,7 +84,6 @@ internal class ProxyServer(
     private fun handle(client: Socket) {
         var established = false
         var upstream: Socket? = null
-        var phase = "代理请求"
         var headerPending = true
         var lane: Semaphore? = null
         try {
@@ -100,11 +99,11 @@ internal class ProxyServer(
                 val origin = Http1.toOrigin(head)
                 rejectLoop(origin.host, origin.port)
                 lane = admit(client, api = false) ?: return
-                phase = "HTTP 上游连接 (${origin.host})"
-                upstream = openUpstream(origin.host, origin.port)
+                upstream = atPhase("HTTP 上游连接 (${origin.host})") { openUpstream(origin.host, origin.port) }
                 established = true
-                phase = "HTTP 转发 (${origin.host})"
-                relayHttp(client, upstream, firstHead = origin.head, singleRequest = true, allowCapture = false)
+                atPhase("HTTP 转发 (${origin.host})") {
+                    relayHttp(client, upstream, firstHead = origin.head, singleRequest = true, allowCapture = false)
+                }
                 return
             }
             val uri = URI("https://${request.target}")
@@ -117,39 +116,40 @@ internal class ProxyServer(
             if (api) log("收到目标 CONNECT $host")
             lane = admit(client, api) ?: return
             if (!api) {
-                phase = "上游连接 ($host)"
-                upstream = openUpstream(host, port)
+                upstream = atPhase("上游连接 ($host)") { openUpstream(host, port) }
                 client.getOutputStream().write(CONNECT_OK)
                 client.getOutputStream().flush()
                 established = true
-                phase = "透传传输 ($host)"
-                tunnel(client, upstream)
+                atPhase("透传传输 ($host)") { tunnel(client, upstream) }
                 return
             }
-            phase = "本地证书 ($host)"
-            val serverContext = authority.serverContext(host)
+            val serverContext = atPhase("本地证书 ($host)") { authority.serverContext(host) }
             client.getOutputStream().write(CONNECT_OK)
             client.getOutputStream().flush()
             established = true
-            phase = "客户端 TLS ($host)"
-            val clientTls = serverContext.socketFactory.createSocket(client, host, port, false) as SSLSocket
+            val clientTls = atPhase("客户端 TLS ($host)") {
+                serverContext.socketFactory.createSocket(client, host, port, false) as SSLSocket
+            }
             sockets.add(clientTls)
             try {
                 // Complete client TLS before opening the upstream connection.
-                configureTls(clientTls, server = true)
-                clientTls.startHandshake()
+                atPhase("客户端 TLS ($host)") {
+                    configureTls(clientTls, server = true)
+                    clientTls.startHandshake()
+                }
                 log("客户端 TLS 已连接 $host")
-                phase = "上游连接 ($host)"
-                upstream = openUpstream(host, port)
-                phase = "上游 TLS ($host)"
-                val upstreamTls = SSLContext.getDefault().socketFactory.createSocket(upstream, host, port, true) as SSLSocket
+                upstream = atPhase("上游连接 ($host)") { openUpstream(host, port) }
+                val upstreamTls = atPhase("上游 TLS ($host)") {
+                    SSLContext.getDefault().socketFactory.createSocket(upstream, host, port, true) as SSLSocket
+                }
                 sockets.add(upstreamTls)
                 try {
-                    configureTls(upstreamTls, server = false)
-                    upstreamTls.startHandshake()
+                    atPhase("上游 TLS ($host)") {
+                        configureTls(upstreamTls, server = false)
+                        upstreamTls.startHandshake()
+                    }
                     log("游戏 API 已连接 $host")
-                    phase = "HTTP 转发 ($host)"
-                    relayHttp(clientTls, upstreamTls)
+                    atPhase("HTTP 转发 ($host)") { relayHttp(clientTls, upstreamTls) }
                 } finally {
                     sockets.remove(upstreamTls)
                     runCatching { upstreamTls.close() }
@@ -159,8 +159,11 @@ internal class ProxyServer(
                 runCatching { clientTls.close() }
             }
         } catch (error: Exception) {
-            if (running.get() && error !is EOFException) {
-                log("$phase 失败：${error.javaClass.simpleName}: ${error.message.orEmpty().take(240)}")
+            val failure = error as? ProxyFailure
+            val cause = failure?.error ?: error
+            val phase = failure?.phase ?: "代理请求"
+            if (running.get() && cause !is EOFException) {
+                log("$phase 失败：${cause.javaClass.simpleName}: ${cause.message.orEmpty().take(240)}")
             }
             if (!established) runCatching {
                 client.getOutputStream().write(
@@ -175,6 +178,14 @@ internal class ProxyServer(
                 runCatching { it.close() }
             }
         }
+    }
+
+    private class ProxyFailure(val phase: String, val error: Exception) : Exception(error)
+
+    private inline fun <T> atPhase(phase: String, operation: () -> T): T = try {
+        operation()
+    } catch (error: Exception) {
+        throw ProxyFailure(phase, error)
     }
 
     private fun admit(client: Socket, api: Boolean): Semaphore? {

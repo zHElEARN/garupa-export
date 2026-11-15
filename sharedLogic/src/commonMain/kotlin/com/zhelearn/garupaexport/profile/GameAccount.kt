@@ -37,14 +37,14 @@ object GameAccountParser {
             when (tag.number) {
                 1 -> { nickname = readNickname(root.message(tag)); hasAccount = true }
                 3 -> cards = dictionary(root.message(tag), ::card)
-                16 -> dictionary(root.message(tag), ::episodeRead).forEach { (id, read) -> if (read) readEpisodes.add(id) }
-                22 -> dictionary(root.message(tag), ::areaItem).values.forEach { (category, level) ->
+                16 -> dictionary(root.message(tag)) { _, entry -> episodeRead(entry) }.forEach { (id, read) -> if (read) readEpisodes.add(id) }
+                22 -> dictionary(root.message(tag)) { _, entry -> areaItem(entry) }.values.forEach { (category, level) ->
                     if (category > 0) {
                         require(level > 0) { "区域道具等级无效" }
                         areaItems[category] = level
                     }
                 }
-                401 -> potentials = dictionary(root.message(tag), ::potential)
+                401 -> potentials = dictionary(root.message(tag)) { _, entry -> potential(entry) }
                 else -> root.skip(tag)
             }
         }
@@ -114,7 +114,7 @@ object GameAccountParser {
         return GameCard(id, level, master, skill, training == "done", art == "after_training")
     }
 
-    private fun episodeRead(id: Int, reader: ProtoReader): Boolean {
+    private fun episodeRead(reader: ProtoReader): Boolean {
         var read = false
         while (true) {
             val tag = reader.nextTag() ?: break
@@ -123,7 +123,7 @@ object GameAccountParser {
         return read
     }
 
-    private fun areaItem(id: Int, reader: ProtoReader): Pair<Int, Int> {
+    private fun areaItem(reader: ProtoReader): Pair<Int, Int> {
         var category = 0
         var level = 0
         while (true) {
@@ -137,7 +137,7 @@ object GameAccountParser {
         return category to level
     }
 
-    private fun potential(id: Int, reader: ProtoReader): PotentialLevels {
+    private fun potential(reader: ProtoReader): PotentialLevels {
         var performance = 0
         var technique = 0
         var visual = 0
