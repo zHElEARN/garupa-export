@@ -1,16 +1,11 @@
 package com.zhelearn.garupaexport.capture
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import com.zhelearn.garupaexport.MainActivity
 import com.zhelearn.garupaexport.R
 import com.zhelearn.garupaexport.app.GarupaExportApplication
 import com.zhelearn.garupaexport.capture.data.CaptureSession
@@ -22,17 +17,14 @@ class CaptureService : Service() {
     private val container get() = (application as GarupaExportApplication).container
     private val startup = Executors.newSingleThreadExecutor()
     private val lock = Any()
+    private lateinit var notifications: CaptureNotifications
     private var proxy: ProxyServer? = null
     private var stopped = false
     private var starting = false
 
     override fun onCreate() {
         super.onCreate()
-        if (Build.VERSION.SDK_INT >= 26) {
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL, getString(R.string.proxy_title), NotificationManager.IMPORTANCE_LOW),
-            )
-        }
+        notifications = CaptureNotifications(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -41,11 +33,12 @@ class CaptureService : Service() {
             starting = true
         }
         container.captures.starting()
+        notifications.clearResult()
         try {
-            val notification = notification(getString(R.string.proxy_starting))
+            val notification = notifications.foreground()
             if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else startForeground(NOTIFICATION, notification)
+                startForeground(CaptureNotifications.SERVICE_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else startForeground(CaptureNotifications.SERVICE_NOTIFICATION_ID, notification)
         } catch (error: Exception) {
             fail(error)
             return START_NOT_STICKY
@@ -54,7 +47,7 @@ class CaptureService : Service() {
             try {
                 val session = CaptureSession { capture ->
                     container.onCaptured(capture)
-                    updateNotification(getString(R.string.capture_complete))
+                    synchronized(lock) { if (!stopped) notifications.captureComplete() }
                 }
                 val authority = CertificateAuthority(
                     assets.open("sniffer-ca/ca_cert.pem").bufferedReader().use { it.readText() },
@@ -74,7 +67,6 @@ class CaptureService : Service() {
                     server.start()
                     proxy = server
                     container.captures.running(session.sessionId)
-                    updateNotification(getString(R.string.proxy_running))
                 }
             } catch (error: Exception) {
                 synchronized(lock) { if (!stopped) fail(error) }
@@ -101,30 +93,5 @@ class CaptureService : Service() {
         Log.e("CaptureService", "Proxy startup failed", error)
         container.captures.failed(getString(R.string.proxy_start_failed))
         stopSelf()
-    }
-
-    private fun updateNotification(message: String) = synchronized(lock) {
-        if (!stopped) getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(message))
-    }
-
-    private fun notification(message: String): Notification {
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
-            else @Suppress("DEPRECATION") Notification.Builder(this)
-        return builder.setContentTitle(getString(R.string.app_name))
-            .setContentText(message)
-            .setSmallIcon(R.drawable.ic_stat_capture)
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .setOnlyAlertOnce(true)
-            .build()
-    }
-
-    private companion object {
-        const val CHANNEL = "capture_proxy"
-        const val NOTIFICATION = 1001
     }
 }
