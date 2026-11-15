@@ -10,12 +10,17 @@ kotlin {
         jvmTarget = JvmTarget.JVM_11
     }
 }
+
 dependencies {
     implementation(project(":sharedLogic"))
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.material3)
-
+    implementation(libs.bouncycastle.pkix)
+    implementation(libs.androidx.core)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.kotlinx.coroutines.android)
 }
 
 android {
@@ -50,4 +55,5 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets.getByName("main").assets.directories.add("../sharedLogic/data")
 }
