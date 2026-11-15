@@ -4,13 +4,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-internal enum class ProxyStatus { Stopped, Starting, Running }
+internal enum class ProxyStatus { Stopped, Starting, Running, Stopping }
 
 internal data class CaptureState(
     val status: ProxyStatus = ProxyStatus.Stopped,
     val sessionId: String? = null,
     val captured: Boolean = false,
     val error: String? = null,
+    val automaticProxy: Boolean = false,
+    val clearFailed: Boolean = false,
 )
 
 internal class CaptureRepository {
@@ -25,7 +27,19 @@ internal class CaptureRepository {
         mutableState.update { it.copy(sessionId = sessionId) }
     }
 
-    fun running(sessionId: String) = updateSession(sessionId) { it.copy(status = ProxyStatus.Running) }
+    fun running(sessionId: String, automaticProxy: Boolean, error: String?, clearFailed: Boolean) =
+        updateSession(sessionId) {
+            it.copy(status = ProxyStatus.Running, automaticProxy = automaticProxy,
+                error = error, clearFailed = clearFailed)
+        }
+
+    fun stopping() {
+        mutableState.update { it.copy(status = ProxyStatus.Stopping, error = null) }
+    }
+
+    fun stopFailed(message: String) {
+        mutableState.update { it.copy(status = ProxyStatus.Running, error = message, clearFailed = true) }
+    }
 
     fun captured(sessionId: String) = updateSession(sessionId) { it.copy(captured = true) }
 
@@ -34,7 +48,7 @@ internal class CaptureRepository {
     }
 
     fun stopped() {
-        mutableState.update { it.copy(status = ProxyStatus.Stopped) }
+        mutableState.update { it.copy(status = ProxyStatus.Stopped, automaticProxy = false, clearFailed = false) }
     }
 
     private fun updateSession(sessionId: String, transform: (CaptureState) -> CaptureState) {

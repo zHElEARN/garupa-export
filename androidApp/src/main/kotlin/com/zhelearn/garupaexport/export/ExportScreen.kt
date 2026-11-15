@@ -31,13 +31,16 @@ import com.zhelearn.garupaexport.R
 import com.zhelearn.garupaexport.capture.ProxyStatus
 import com.zhelearn.garupaexport.profile.ExportedProfile
 import com.zhelearn.garupaexport.profile.ProfileState
+import com.zhelearn.garupaexport.shizuku.ShizukuStatus
 
 @Composable
 internal fun ExportScreen(
     state: ExportUiState,
     onStartProxy: () -> Unit,
-    onStopProxy: () -> Unit,
+    onStopProxy: (manuallyCleared: Boolean) -> Unit,
     onProxySettings: () -> Unit,
+    onAuthorizeShizuku: () -> Unit,
+    onOpenShizuku: () -> Unit,
     onRetry: () -> Unit,
     onCopy: (ExportedProfile) -> Unit,
     onSave: (ExportedProfile) -> Unit,
@@ -53,9 +56,29 @@ internal fun ExportScreen(
             Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(stringResource(R.string.shizuku_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(when (state.shizuku) {
+                        ShizukuStatus.NotInstalled -> R.string.shizuku_not_installed
+                        ShizukuStatus.NotRunning -> R.string.shizuku_not_running
+                        ShizukuStatus.Unauthorized -> R.string.shizuku_unauthorized
+                        ShizukuStatus.Authorized -> R.string.shizuku_authorized
+                    }))
+                    if (state.shizuku == ShizukuStatus.Unauthorized || state.shizuku == ShizukuStatus.NotRunning) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (state.shizuku == ShizukuStatus.Unauthorized) {
+                                Button(onClick = onAuthorizeShizuku) { Text(stringResource(R.string.shizuku_authorize)) }
+                            }
+                            OutlinedButton(onClick = onOpenShizuku) { Text(stringResource(R.string.shizuku_open)) }
+                        }
+                    }
+                }
+            }
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(stringResource(R.string.proxy_title), style = MaterialTheme.typography.titleMedium)
                     Text(stringResource(when {
                         state.capture.status == ProxyStatus.Starting -> R.string.proxy_starting
+                        state.capture.status == ProxyStatus.Stopping -> R.string.proxy_stopping
                         state.capture.status == ProxyStatus.Stopped -> R.string.proxy_stopped
                         state.capture.captured -> R.string.capture_complete
                         else -> R.string.proxy_running
@@ -64,14 +87,25 @@ internal fun ExportScreen(
                     state.capture.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
-                            onClick = { if (state.capture.status == ProxyStatus.Stopped) onStartProxy() else confirmStop = true },
-                            enabled = state.capture.status != ProxyStatus.Starting,
+                            onClick = {
+                                when {
+                                    state.capture.status == ProxyStatus.Stopped -> onStartProxy()
+                                    state.capture.automaticProxy -> onStopProxy(false)
+                                    else -> confirmStop = true
+                                }
+                            },
+                            enabled = state.capture.status == ProxyStatus.Stopped || state.capture.status == ProxyStatus.Running,
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(stringResource(if (state.capture.status == ProxyStatus.Stopped) R.string.start_proxy else R.string.stop_proxy))
                         }
                         OutlinedButton(onClick = onProxySettings, modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.proxy_settings))
+                        }
+                    }
+                    if (state.capture.clearFailed) {
+                        TextButton(onClick = { confirmStop = true }) {
+                            Text(stringResource(R.string.proxy_manually_cleared))
                         }
                     }
                 }
@@ -100,7 +134,7 @@ internal fun ExportScreen(
             onDismissRequest = { confirmStop = false },
             title = { Text(stringResource(R.string.confirm_stop_proxy)) },
             confirmButton = {
-                TextButton(onClick = { confirmStop = false; onStopProxy() }) {
+                TextButton(onClick = { confirmStop = false; onStopProxy(true) }) {
                     Text(stringResource(R.string.stop_proxy))
                 }
             },

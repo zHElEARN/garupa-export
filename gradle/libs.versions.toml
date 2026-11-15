@@ -10,6 +10,7 @@ bouncycastle = "1.87"
 serialization = "1.13.0"
 lifecycle = "2.11.0"
 coroutines = "1.9.0"
+shizuku = "13.1.5"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
@@ -21,6 +22,8 @@ androidx-core = { module = "androidx.core:core", version = "1.18.0" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
+shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

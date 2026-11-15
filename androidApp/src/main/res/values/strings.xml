@@ -3,9 +3,13 @@
     <string name="proxy_title">本地代理</string>
     <string name="proxy_address" translatable="false">127.0.0.1:8888</string>
     <string name="proxy_starting">正在启动</string>
+    <string name="proxy_stopping">正在停止</string>
     <string name="proxy_stopped">未运行</string>
     <string name="proxy_running">运行中 · 等待存档</string>
     <string name="proxy_start_failed">代理启动失败</string>
+    <string name="proxy_setup_failed">自动设置代理失败，请手动配置代理</string>
+    <string name="proxy_clear_failed">清除系统代理失败，请启动并授权 Shizuku 后重试，或手动关闭代理</string>
+    <string name="proxy_manually_cleared">已手动关闭代理</string>
     <string name="capture_complete">已获取存档 · 代理运行中</string>
     <string name="proxy_notification_description">本地代理服务，用于获取游戏存档</string>
     <string name="capture_result_channel">抓包结果</string>
@@ -27,4 +31,11 @@
     <string name="profile_copied">已复制档案</string>
     <string name="profile_saved">已保存文件</string>
     <string name="action_failed">操作失败</string>
+    <string name="shizuku_title" translatable="false">Shizuku</string>
+    <string name="shizuku_not_installed">未安装</string>
+    <string name="shizuku_not_running">未运行</string>
+    <string name="shizuku_unauthorized">未授权</string>
+    <string name="shizuku_authorized">已授权</string>
+    <string name="shizuku_authorize">授权</string>
+    <string name="shizuku_open">打开 Shizuku</string>
 </resources>

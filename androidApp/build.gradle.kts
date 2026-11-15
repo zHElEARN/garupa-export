@@ -21,6 +21,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 }
 
 android {
@@ -55,6 +57,7 @@ android {
     }
     buildFeatures {
         compose = true
+        aidl = true
     }
     sourceSets.getByName("main").assets.directories.add("../sharedLogic/data")
 }

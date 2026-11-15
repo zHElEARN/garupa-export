@@ -22,6 +22,7 @@ import com.zhelearn.garupaexport.capture.CaptureService
 import com.zhelearn.garupaexport.export.ExportScreen
 import com.zhelearn.garupaexport.export.ExportViewModel
 import com.zhelearn.garupaexport.export.ProfileActions
+import com.zhelearn.garupaexport.shizuku.ShizukuRepository
 import com.zhelearn.garupaexport.ui.theme.GarupaTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -31,7 +32,7 @@ class MainActivity : ComponentActivity() {
     private val profileActions by lazy { ProfileActions(this) }
     private val model by lazy {
         ViewModelProvider(this, viewModelFactory {
-            initializer { ExportViewModel(container.captures, container.profiles) }
+            initializer { ExportViewModel(container.captures, container.profiles, container.shizuku) }
         })[ExportViewModel::class.java]
     }
     private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -53,8 +54,18 @@ class MainActivity : ComponentActivity() {
                 ExportScreen(
                     state = state,
                     onStartProxy = ::requestStartProxy,
-                    onStopProxy = { stopService(Intent(this, CaptureService::class.java)) },
+                    onStopProxy = { manuallyCleared ->
+                        startService(Intent(this, CaptureService::class.java).setAction(
+                            if (manuallyCleared) CaptureService.ACTION_STOP_MANUAL else CaptureService.ACTION_STOP,
+                        ))
+                    },
                     onProxySettings = { performAction { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } },
+                    onAuthorizeShizuku = { performAction { container.shizuku.requestPermission() } },
+                    onOpenShizuku = { performAction {
+                        val intent = packageManager.getLaunchIntentForPackage(ShizukuRepository.MANAGER_PACKAGE)
+                            ?: error("无法打开 Shizuku")
+                        startActivity(intent)
+                    } },
                     onRetry = model::retryExport,
                     onCopy = { profile -> performAction(R.string.profile_copied) { profileActions.copy(profile.json) } },
                     onSave = { profile ->
@@ -65,6 +76,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        container.shizuku.refresh()
     }
 
     private fun requestStartProxy() {
