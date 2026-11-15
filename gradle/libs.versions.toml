@@ -1,5 +1,5 @@
 [versions]
-agp = "9.1.1"
+agp = "9.3.3"
 android-compileSdk = "37"
 android-minSdk = "24"
 android-targetSdk = "37"
@@ -9,7 +9,7 @@ material3 = "1.12.0-alpha03"
 bouncycastle = "1.87"
 serialization = "1.13.0"
 lifecycle = "2.11.0"
-coroutines = "1.9.0"
+coroutines = "1.11.0"
 shizuku = "13.1.5"
 
 [libraries]
@@ -17,7 +17,7 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
 bouncycastle-pkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
-androidx-core = { module = "androidx.core:core", version = "1.18.0" }
+androidx-core = { module = "androidx.core:core", version = "1.19.1" }
 
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
