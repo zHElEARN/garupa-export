@@ -4,9 +4,12 @@ import UIKit
 struct ContentView: View {
     @State private var app = AppModel()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var confirmStop = false
     @State private var sharedProfile: ProfileDocument?
     @State private var copied = false
+    @State private var hostCopied = false
+    private let proxyHost = "127.0.0.1"
 
     var body: some View {
         NavigationStack {
@@ -20,7 +23,15 @@ struct ContentView: View {
                 }
                 Section("本地代理") {
                     Text(app.capture.status)
-                    Text("127.0.0.1:8888").textSelection(.enabled)
+                    LabeledContent("主机", value: proxyHost).textSelection(.enabled)
+                    LabeledContent("端口", value: "8888").textSelection(.enabled)
+                    Button(hostCopied ? "主机地址已复制" : "复制主机地址") {
+                        UIPasteboard.general.string = proxyHost
+                        hostCopied = true
+                    }
+                    Button("打开设置") {
+                        openURL(URL(string: UIApplication.openSettingsURLString)!)
+                    }
                     Button(app.capture.phase == .stopped ? "启动代理" : "停止代理") {
                         if app.capture.phase == .stopped { Task { await app.startCapture() } }
                         else { confirmStop = true }
@@ -51,7 +62,10 @@ struct ContentView: View {
         }
         .task { await app.activate() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await app.activate() } }
+            if phase == .active {
+                hostCopied = false
+                Task { await app.activate() }
+            }
         }
         .onChange(of: profileID) { _, _ in copied = false }
         .alert("已关闭系统代理？", isPresented: $confirmStop) {
