@@ -14,6 +14,25 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Bestdori 卡牌数据") {
+                    Text("来源：bestdori.com。已下载的数据会保存在本机，下次打开直接使用，可离线生成档案。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if let cache = app.catalog.cache {
+                        LabeledContent("本地缓存", value: "\(cache.cardCount) 张卡牌")
+                        LabeledContent("最近更新") {
+                            Text(Date(timeIntervalSince1970: Double(cache.updatedAtMillis) / 1000), format: .dateTime)
+                        }
+                    } else {
+                        Text("请先下载 Bestdori 卡牌数据，再启动代理")
+                    }
+                    if app.catalog.loading { HStack { ProgressView(); Text("正在获取卡牌数据") } }
+                    if let error = app.catalog.error { errorText(error) }
+                    if app.catalog.upToDate { Text("已是最新数据").foregroundStyle(.secondary) }
+                    Button(app.catalog.cache == nil ? "下载数据" : "刷新数据") {
+                        Task { await app.catalog.refresh() }
+                    }
+                    .disabled(app.catalog.loading)
+                }
                 Section("本地证书") {
                     LabeledContent("CA 状态", value: app.certificates.state.title)
                     Button("安装描述文件", action: app.certificates.installProfile)
@@ -37,11 +56,12 @@ struct ContentView: View {
                         else { confirmStop = true }
                     }
                     .disabled(app.capture.phase == .starting || app.capture.phase == .stopping ||
-                              (app.capture.phase == .stopped && app.certificates.trustedAuthority == nil))
+                              (app.capture.phase == .stopped &&
+                               (app.certificates.trustedAuthority == nil || app.catalog.cache == nil)))
                     if let error = app.capture.error { errorText(error) }
                 }
                 Section("Bestdori 档案") {
-                    switch app.capture.exportState {
+                    switch app.profiles.state {
                     case .parsing:
                         HStack { ProgressView(); Text("正在生成档案") }
                     case .ready(let profile):
@@ -53,7 +73,9 @@ struct ContentView: View {
                         }
                         Button("导出档案") { sharedProfile = profile }
                         ForEach(profile.warnings, id: \.self) { Text($0).font(.footnote) }
-                    case .failed(let message): errorText(message)
+                    case .failed(let message):
+                        errorText(message)
+                        Button("重新解析", action: app.profiles.retry)
                     case .empty: Text("暂无档案").foregroundStyle(.secondary)
                     }
                 }
@@ -76,7 +98,7 @@ struct ContentView: View {
     }
 
     private var profileID: UUID? {
-        if case .ready(let profile) = app.capture.exportState { return profile.id }
+        if case .ready(let profile) = app.profiles.state { return profile.id }
         return nil
     }
 

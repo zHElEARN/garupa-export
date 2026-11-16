@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
     private val profileActions by lazy { ProfileActions(this) }
     private val model by lazy {
         ViewModelProvider(this, viewModelFactory {
-            initializer { ExportViewModel(container.captures, container.profiles, container.shizuku) }
+            initializer { ExportViewModel(container.captures, container.profiles, container.shizuku, container.catalog) }
         })[ExportViewModel::class.java]
     }
     private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
                         startActivity(intent)
                     } },
                     onRetry = model::retryExport,
+                    onRefreshCatalog = model::refreshCatalog,
                     onCopy = { profile -> performAction(R.string.profile_copied) { profileActions.copy(profile.json) } },
                     onSave = { profile ->
                         model.prepareSave(profile)

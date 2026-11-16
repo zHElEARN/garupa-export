@@ -43,6 +43,3 @@ DerivedData/
 # Publicly disclosed eMudhra CA bundled with the Android app.
 !androidApp/src/main/assets/sniffer-ca/ca_cert.pem
 !androidApp/src/main/assets/sniffer-ca/ca_key.pem
-
-# Local master snapshot, bundled from disk during builds.
-/sharedLogic/data/master-episodes.json

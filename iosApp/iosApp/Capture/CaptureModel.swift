@@ -6,19 +6,9 @@ import Observation
 @Observable
 final class CaptureModel {
     enum Phase { case stopped, starting, running, stopping }
-    enum ExportState {
-        case empty, parsing
-        case ready(ProfileDocument)
-        case failed(String)
-
-        var hasCapture: Bool {
-            if case .empty = self { return false }
-            return true
-        }
-    }
 
     private(set) var phase = Phase.stopped
-    private(set) var exportState = ExportState.empty
+    private(set) var captured = false
     private(set) var error: String?
 
     private let location = LocationKeeper()
@@ -38,25 +28,30 @@ final class CaptureModel {
         case .stopped: return "未运行"
         case .starting: return "正在启动"
         case .stopping: return "正在停止"
-        case .running: return exportState.hasCapture ? "已获取存档 · 代理运行中" : "运行中 · 等待存档"
+        case .running: return captured ? "已获取存档 · 代理运行中" : "运行中 · 等待存档"
         }
     }
 
-    func start(authority: CertificateAuthority) async {
+    func start(authority: CertificateAuthority, onCaptured: @escaping @MainActor (CapturedResponse) -> Void) async {
         guard phase == .stopped else { return }
         phase = .starting
         error = nil
-        exportState = .empty
+        captured = false
         let id = UUID()
         sessionID = id
         do {
             try await location.start()
             let server = LocalProxy(authority: authority, onCapture: { [weak self] response in
-                Task { @MainActor in await self?.receive(response, session: id) }
+                Task { @MainActor in
+                    guard let self, self.sessionID == id else { return }
+                    self.captured = true
+                    self.error = nil
+                    onCaptured(response)
+                }
             }, onError: { [weak self] message in
                 Task { @MainActor in
                     guard let self, self.sessionID == id, self.phase == .running,
-                          !self.exportState.hasCapture else { return }
+                          !self.captured else { return }
                     self.error = message
                 }
             })
@@ -81,19 +76,5 @@ final class CaptureModel {
         proxy = nil
         location.stop()
         phase = .stopped
-    }
-
-    private func receive(_ response: CapturedResponse, session: UUID) async {
-        guard sessionID == session else { return }
-        error = nil
-        exportState = .parsing
-        do {
-            let document = try await Task.detached(priority: .userInitiated) { try ProfileExporter.export(response) }.value
-            guard sessionID == session else { return }
-            exportState = .ready(document)
-        } catch {
-            guard sessionID == session else { return }
-            exportState = .failed(error.localizedDescription)
-        }
     }
 }

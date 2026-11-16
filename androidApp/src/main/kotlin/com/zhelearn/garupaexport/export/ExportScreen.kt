@@ -32,6 +32,8 @@ import com.zhelearn.garupaexport.capture.ProxyStatus
 import com.zhelearn.garupaexport.profile.ExportedProfile
 import com.zhelearn.garupaexport.profile.ProfileState
 import com.zhelearn.garupaexport.shizuku.ShizukuStatus
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 internal fun ExportScreen(
@@ -42,6 +44,7 @@ internal fun ExportScreen(
     onAuthorizeShizuku: () -> Unit,
     onOpenShizuku: () -> Unit,
     onRetry: () -> Unit,
+    onRefreshCatalog: () -> Unit,
     onCopy: (ExportedProfile) -> Unit,
     onSave: (ExportedProfile) -> Unit,
     onShare: (ExportedProfile) -> Unit,
@@ -54,6 +57,31 @@ internal fun ExportScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.catalog_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.catalog_description))
+                    val cached = state.catalog.cache
+                    if (cached != null) {
+                        Text(stringResource(R.string.catalog_summary, cached.cardCount))
+                        Text(stringResource(R.string.catalog_updated,
+                            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(cached.updatedAtMillis))))
+                    } else {
+                        Text(stringResource(R.string.catalog_required))
+                    }
+                    if (state.catalog.loading) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            CircularProgressIndicator()
+                            Text(stringResource(R.string.catalog_loading))
+                        }
+                    }
+                    state.catalog.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (state.catalog.upToDate) Text(stringResource(R.string.catalog_up_to_date))
+                    OutlinedButton(onClick = onRefreshCatalog, enabled = !state.catalog.loading) {
+                        Text(stringResource(if (cached == null) R.string.catalog_download else R.string.catalog_refresh))
+                    }
+                }
+            }
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(stringResource(R.string.shizuku_title), style = MaterialTheme.typography.titleMedium)
@@ -94,7 +122,8 @@ internal fun ExportScreen(
                                     else -> confirmStop = true
                                 }
                             },
-                            enabled = state.capture.status == ProxyStatus.Stopped || state.capture.status == ProxyStatus.Running,
+                            enabled = (state.capture.status == ProxyStatus.Stopped && state.catalog.available) ||
+                                state.capture.status == ProxyStatus.Running,
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(stringResource(if (state.capture.status == ProxyStatus.Stopped) R.string.start_proxy else R.string.stop_proxy))
@@ -154,6 +183,7 @@ private fun ProfileContent(
 ) {
     Text(profile.name, style = MaterialTheme.typography.titleLarge)
     Text(stringResource(R.string.profile_summary, profile.cardCount, profile.areaItemCount, profile.potentialCount))
+    profile.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
     Button(onClick = { onCopy(profile) }, modifier = Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.copy_profile))
     }

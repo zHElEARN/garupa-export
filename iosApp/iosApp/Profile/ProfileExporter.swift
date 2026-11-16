@@ -3,12 +3,9 @@ import GarupaKit
 import SharedLogic
 
 enum ProfileExporter {
-    static func export(_ response: CapturedResponse) throws -> ProfileDocument {
+    static func export(_ response: CapturedResponse, catalog: CardCatalog) throws -> ProfileDocument {
         let protobuf = try ResponseDecoder.decode(response.body, contentEncoding: response.contentEncoding)
-        guard let masterURL = Bundle.main.url(forResource: "master-episodes", withExtension: "json") else {
-            throw GarupaError.message("App 缺少 master 映射资源")
-        }
-        let converter = try ProfileConverter(masterJson: String(contentsOf: masterURL, encoding: .utf8))
+        let converter = ProfileConverter(catalog: catalog)
         let result = try converter.convertBase64(protobuf: protobuf.base64EncodedString())
         let directory = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
                                                     appropriateFor: nil, create: true)

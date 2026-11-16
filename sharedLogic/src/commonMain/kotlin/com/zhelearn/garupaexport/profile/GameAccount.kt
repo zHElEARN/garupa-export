@@ -1,5 +1,6 @@
 package com.zhelearn.garupaexport.profile
 
+import com.zhelearn.garupaexport.catalog.ParameterBonus
 data class GameCard(
     val id: Int,
     val level: Int,
@@ -7,6 +8,7 @@ data class GameCard(
     val skillLevel: Int,
     val trained: Boolean,
     val trainedArt: Boolean,
+    val appendBonus: ParameterBonus,
 )
 
 data class PotentialLevels(val performance: Int, val technique: Int, val visual: Int) {
@@ -16,7 +18,6 @@ data class PotentialLevels(val performance: Int, val technique: Int, val visual:
 data class GameAccount(
     val nickname: String,
     val cards: List<GameCard>,
-    val readEpisodeIds: Set<Int>,
     /** categoryId -> actual game level, before Bestdori's zero-based conversion. */
     val areaItems: Map<Int, Int>,
     val potentials: Map<Int, PotentialLevels>,
@@ -29,7 +30,6 @@ object GameAccountParser {
         var hasAccount = false
         var nickname = ""
         var cards: Map<Int, GameCard>? = null
-        val readEpisodes = mutableSetOf<Int>()
         val areaItems = linkedMapOf<Int, Int>()
         var potentials = emptyMap<Int, PotentialLevels>()
         while (true) {
@@ -37,7 +37,6 @@ object GameAccountParser {
             when (tag.number) {
                 1 -> { nickname = readNickname(root.message(tag)); hasAccount = true }
                 3 -> cards = dictionary(root.message(tag), ::card)
-                16 -> dictionary(root.message(tag)) { _, entry -> episodeRead(entry) }.forEach { (id, read) -> if (read) readEpisodes.add(id) }
                 22 -> dictionary(root.message(tag)) { _, entry -> areaItem(entry) }.values.forEach { (category, level) ->
                     if (category > 0) {
                         require(level > 0) { "区域道具等级无效" }
@@ -49,7 +48,7 @@ object GameAccountParser {
             }
         }
         require(hasAccount && cards != null) { "响应不是完整的用户存档，缺少账户或卡牌数据" }
-        return GameAccount(nickname, cards.values.toList(), readEpisodes, areaItems, potentials)
+        return GameAccount(nickname, cards.values.toList(), areaItems, potentials)
     }
 
     private fun readNickname(user: ProtoReader): String {
@@ -96,6 +95,7 @@ object GameAccountParser {
         var skill = 0
         var training = "not_doing"
         var art = "normal"
+        var append: ParameterBonus? = null
         while (true) {
             val tag = reader.nextTag() ?: break
             when (tag.number) {
@@ -104,6 +104,7 @@ object GameAccountParser {
                 7 -> training = reader.string(tag)
                 9 -> art = reader.string(tag)
                 11 -> skill = reader.int(tag)
+                12 -> append = appendBonus(id, reader.message(tag))
                 13 -> master = reader.int(tag)
                 else -> reader.skip(tag)
             }
@@ -111,16 +112,25 @@ object GameAccountParser {
         require(embeddedId == id) { "卡牌 ID 与映射键不一致：$id" }
         require(training in setOf("not_doing", "done")) { "无法识别卡牌 $id 的特训状态：$training" }
         require(art in setOf("normal", "after_training")) { "无法识别卡牌 $id 的立绘状态：$art" }
-        return GameCard(id, level, master, skill, training == "done", art == "after_training")
+        require(append != null) { "卡牌 $id 缺少属性加成，无法推算故事状态" }
+        return GameCard(id, level, master, skill, training == "done", art == "after_training", append)
     }
 
-    private fun episodeRead(reader: ProtoReader): Boolean {
-        var read = false
+    private fun appendBonus(id: Int, reader: ProtoReader): ParameterBonus {
+        var performance = 0
+        var technique = 0
+        var visual = 0
         while (true) {
             val tag = reader.nextTag() ?: break
-            if (tag.number == 3) read = reader.string(tag) == "already_read" else reader.skip(tag)
+            when (tag.number) {
+                2 -> require(reader.int(tag) == id) { "卡牌 $id 的属性加成 ID 不一致" }
+                3 -> performance = reader.int(tag)
+                4 -> technique = reader.int(tag)
+                5 -> visual = reader.int(tag)
+                else -> reader.skip(tag)
+            }
         }
-        return read
+        return ParameterBonus(performance, technique, visual)
     }
 
     private fun areaItem(reader: ProtoReader): Pair<Int, Int> {

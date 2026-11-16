@@ -47,6 +47,11 @@ class CaptureService : Service() {
 
     private fun startCapture() {
         if (starting || proxy != null) return
+        if (!container.catalog.state.value.available) {
+            container.captures.failed(getString(R.string.catalog_required))
+            stopSelf()
+            return
+        }
         starting = true
         container.captures.starting()
         notifications.clearResult()

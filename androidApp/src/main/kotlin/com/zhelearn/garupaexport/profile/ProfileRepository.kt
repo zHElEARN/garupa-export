@@ -1,8 +1,9 @@
 package com.zhelearn.garupaexport.profile
 
-import android.content.Context
 import android.util.Log
 import com.zhelearn.garupaexport.capture.data.CapturedResponse
+import com.zhelearn.garupaexport.catalog.CardCatalog
+import com.zhelearn.garupaexport.catalog.CatalogRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ internal data class ExportedProfile(
     val cardCount: Int,
     val areaItemCount: Int,
     val potentialCount: Int,
+    val warnings: List<String>,
 )
 
 internal sealed interface ProfileState {
@@ -29,16 +31,13 @@ internal sealed interface ProfileState {
 }
 
 internal class ProfileRepository(
-    private val context: Context,
+    private val catalog: CatalogRepository,
     private val scope: CoroutineScope,
 ) {
     private val mutableState = MutableStateFlow<ProfileState>(ProfileState.Empty)
     val state = mutableState.asStateFlow()
     private var parseJob: Job? = null
     private var latestCapture: CapturedResponse? = null
-    private val master by lazy {
-        context.assets.open("master-episodes.json").bufferedReader().use { MasterData.fromJson(it.readText()) }
-    }
 
     // Called on the main thread; IO work outlives individual activities.
     fun parse(capture: CapturedResponse) {
@@ -48,7 +47,8 @@ internal class ProfileRepository(
         mutableState.value = ProfileState.Parsing
         parseJob = scope.launch {
             try {
-                val profile = withContext(Dispatchers.IO) { export(capture) }
+                val data = checkNotNull(catalog.state.value.cache) { "请先下载 Bestdori 卡牌数据" }.catalog
+                val profile = withContext(Dispatchers.IO) { export(capture, data) }
                 mutableState.value = ProfileState.Ready(profile)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -63,9 +63,9 @@ internal class ProfileRepository(
         latestCapture?.let(::parse)
     }
 
-    private fun export(capture: CapturedResponse): ExportedProfile {
+    private fun export(capture: CapturedResponse, data: CardCatalog): ExportedProfile {
         val account = GameAccountParser.parse(ResponseDecoder.decode(capture.body, capture.contentEncoding))
-        val result = BestdoriExporter.export(account, master)
+        val result = BestdoriExporter.export(account, data)
         return ExportedProfile(
             json = result.profile.toJsonString(),
             fileName = "bestdori-${capture.sessionId}.json",
@@ -73,6 +73,7 @@ internal class ProfileRepository(
             cardCount = result.profile.cards.size,
             areaItemCount = result.profile.items.values.sumOf { levels -> levels.count { it != null } },
             potentialCount = account.potentials.size,
+            warnings = result.warnings,
         )
     }
 }

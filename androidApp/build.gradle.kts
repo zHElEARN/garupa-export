@@ -59,5 +59,4 @@ android {
         compose = true
         aidl = true
     }
-    sourceSets.getByName("main").assets.directories.add("../sharedLogic/data")
 }

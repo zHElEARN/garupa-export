@@ -1,5 +1,6 @@
 package com.zhelearn.garupaexport.profile
 
+import com.zhelearn.garupaexport.catalog.CardCatalog
 import kotlin.io.encoding.Base64
 
 data class ConvertedProfile(
@@ -11,14 +12,13 @@ data class ConvertedProfile(
     val warnings: List<String>,
 )
 
-/** A throwing, string-based boundary for Swift, avoiding per-byte Objective-C bridge calls. */
-class ProfileConverter @Throws(Exception::class) constructor(masterJson: String) {
-    private val master = MasterData.fromJson(masterJson)
+/** A throwing boundary for Swift, avoiding per-byte Objective-C bridge calls. */
+class ProfileConverter(private val catalog: CardCatalog) {
 
     @Throws(Exception::class)
     fun convertBase64(protobuf: String): ConvertedProfile {
         val account = GameAccountParser.parse(Base64.decode(protobuf))
-        val result = BestdoriExporter.export(account, master)
+        val result = BestdoriExporter.export(account, catalog)
         return ConvertedProfile(
             result.profile.toJsonString(), result.profile.name, result.profile.cards.size,
             result.profile.items.values.sumOf { levels -> levels.count { it != null } },

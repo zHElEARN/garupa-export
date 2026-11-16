@@ -1,5 +1,14 @@
 <resources>
     <string name="app_name">Garupa Export</string>
+    <string name="catalog_title">Bestdori 卡牌数据</string>
+    <string name="catalog_description">来源：bestdori.com。已下载的数据会保存在本机，下次打开直接使用，可离线生成档案。</string>
+    <string name="catalog_required">请先下载 Bestdori 卡牌数据，再启动代理</string>
+    <string name="catalog_summary">已缓存 %1$d 张卡牌</string>
+    <string name="catalog_updated">最近更新：%1$s</string>
+    <string name="catalog_loading">正在获取卡牌数据</string>
+    <string name="catalog_up_to_date">已是最新数据</string>
+    <string name="catalog_download">下载数据</string>
+    <string name="catalog_refresh">刷新数据</string>
     <string name="proxy_title">本地代理</string>
     <string name="proxy_address" translatable="false">127.0.0.1:8888</string>
     <string name="proxy_starting">正在启动</string>

@@ -1,5 +1,8 @@
 package com.zhelearn.garupaexport.profile
 
+import com.zhelearn.garupaexport.catalog.CardCatalog
+import com.zhelearn.garupaexport.catalog.CatalogCard
+import com.zhelearn.garupaexport.catalog.ParameterBonus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -62,14 +65,14 @@ object BestdoriExporter {
         "Menu" to listOf(56, 57, 58, 60),
     )
 
-    fun export(account: GameAccount, master: MasterData): ProfileExport {
-        val missing = account.cards.map { it.id }.filter { it !in master.cards }
+    fun export(account: GameAccount, catalog: CardCatalog): ProfileExport {
+        val missing = account.cards.map { it.id }.filter { it !in catalog.cards }
         require(missing.isEmpty()) {
-            "master 映射缺少卡牌 ${missing.joinToString()}，无法准确计算故事数量，请更新映射后重新解析"
+            "Bestdori 数据缺少卡牌 ${missing.take(10).joinToString()}，请刷新卡牌数据后重新解析"
         }
         require(account.cards.map { it.id }.distinct().size == account.cards.size) { "账户包含重复卡牌" }
         val cards = account.cards.sortedBy { it.id }.map { card ->
-            val info = master.cards.getValue(card.id)
+            val info = catalog.cards.getValue(card.id)
             val maxLevel = info.levelLimit + if (card.trained) info.trainingLevelBonus else 0
             require(card.level in 1..maxLevel && card.skillLevel in 1..5 && card.masterRank in 0..4) {
                 "卡牌 ${card.id} 的等级、技能等级或星光练习等级超出支持范围"
@@ -77,7 +80,7 @@ object BestdoriExporter {
             require(!card.trainedArt || card.trained) { "卡牌 ${card.id} 未特训却使用了特训后立绘" }
             BestdoriCard(
                 card.id, card.level, card.masterRank, card.skillLevel,
-                info.episodeIds.count { it in account.readEpisodeIds }.coerceAtMost(2),
+                inferEpisodes(card, info),
                 if (card.trained) 1 else 0, if (card.trainedArt) 1 else 0,
             )
         }
@@ -103,5 +106,18 @@ object BestdoriExporter {
         val skippedCharacters = account.potentials.keys.filter { it !in 1..40 }.sorted()
         if (skippedCharacters.isNotEmpty()) warnings.add("Bestdori 不支持这些角色的潜能，已跳过：${skippedCharacters.joinToString()}")
         return ProfileExport(BestdoriProfile(account.nickname.ifBlank { "Profile" }, 3, cards, items, potentials), warnings)
+    }
+
+    private fun inferEpisodes(card: GameCard, info: CatalogCard): Int {
+        val rankBonus = card.masterRank * 50 * info.rarity
+        var bonus = ParameterBonus(rankBonus, rankBonus, rankBonus)
+        if (card.trained) bonus += info.trainingBonus
+        // Bestdori sums the first `ep` entries. Choose the smallest equivalent
+        // value when an animation episode contributes zero to all three stats.
+        for (ep in 0..info.episodeBonuses.size) {
+            if (bonus == card.appendBonus) return ep
+            if (ep < info.episodeBonuses.size) bonus += info.episodeBonuses[ep]
+        }
+        error("卡牌 ${card.id} 的属性加成与 Bestdori 数据不匹配，请刷新卡牌数据后重新解析")
     }
 }

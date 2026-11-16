@@ -80,7 +80,6 @@
 				0DF47E1EBA8B3CE3289F9518 /* Sources */,
 				DD2518229DE925A7A5174F40 /* Frameworks */,
 				A972BD2D68908F930CD4638A /* Resources */,
-				A10000000000000000000004 /* Bundle Master Mapping */,
 			);
 			buildRules = (
 			);
@@ -145,17 +144,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A10000000000000000000004 /* Bundle Master Mapping */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = ();
-			inputPaths = ("$(SRCROOT)/../sharedLogic/data/master-episodes.json",);
-			name = "Bundle Master Mapping";
-			outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/master-episodes.json",);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -eu\nmkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\ncp \"$SRCROOT/../sharedLogic/data/master-episodes.json\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/master-episodes.json\"\n";
-		};
 		808B6667A73979B37F90C630 /* Compile Kotlin Framework */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
