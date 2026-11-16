@@ -17,8 +17,16 @@ import java.io.File
 
 internal class ProfileActions(private val context: Context) {
     fun copy(json: String) {
-        val clip = ClipData.newPlainText(context.getString(R.string.profile_title), json)
-        if (Build.VERSION.SDK_INT >= 33) {
+        copyText(context.getString(R.string.profile_title), json, sensitive = true)
+    }
+
+    fun copyProxyHost() {
+        copyText(context.getString(R.string.proxy_host), context.getString(R.string.proxy_host_value), sensitive = false)
+    }
+
+    private fun copyText(label: String, text: String, sensitive: Boolean) {
+        val clip = ClipData.newPlainText(label, text)
+        if (sensitive && Build.VERSION.SDK_INT >= 33) {
             clip.description.extras = PersistableBundle().apply {
                 putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
             }

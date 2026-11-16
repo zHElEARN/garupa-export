@@ -53,7 +53,7 @@ class CaptureService : Service() {
             return
         }
         starting = true
-        container.captures.starting()
+        container.beginCapture()
         notifications.clearResult()
         try {
             val notification = notifications.foreground()

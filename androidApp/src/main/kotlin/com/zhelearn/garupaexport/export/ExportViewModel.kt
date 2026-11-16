@@ -14,6 +14,8 @@ import com.zhelearn.garupaexport.shizuku.ShizukuStatus
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 
 internal data class ExportUiState(
     val capture: CaptureState = CaptureState(),
@@ -32,6 +34,10 @@ internal class ExportViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExportUiState())
 
     private var pendingSave: ExportedProfile? = null
+    private val messageQueue = Channel<String>(Channel.BUFFERED)
+    val messages = messageQueue.receiveAsFlow()
+
+    fun showMessage(message: String) { messageQueue.trySend(message) }
 
     fun retryExport() = profiles.retry()
     fun refreshCatalog() = catalog.refresh()

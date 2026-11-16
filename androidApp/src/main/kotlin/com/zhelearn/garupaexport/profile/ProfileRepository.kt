@@ -39,6 +39,13 @@ internal class ProfileRepository(
     private var parseJob: Job? = null
     private var latestCapture: CapturedResponse? = null
 
+    fun reset() {
+        parseJob?.cancel()
+        parseJob = null
+        latestCapture = null
+        mutableState.value = ProfileState.Empty
+    }
+
     // Called on the main thread; IO work outlives individual activities.
     fun parse(capture: CapturedResponse) {
         if (mutableState.value == ProfileState.Parsing && latestCapture === capture) return

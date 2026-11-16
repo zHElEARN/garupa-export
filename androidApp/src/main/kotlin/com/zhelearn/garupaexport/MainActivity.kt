@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +16,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import com.zhelearn.garupaexport.app.GarupaExportApplication
 import com.zhelearn.garupaexport.capture.CaptureService
 import com.zhelearn.garupaexport.export.ExportScreen
@@ -50,9 +52,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val state = model.state.collectAsStateWithLifecycle().value
+            val snackbar = remember { SnackbarHostState() }
+            LaunchedEffect(model) { model.messages.collect { snackbar.showSnackbar(it) } }
             GarupaTheme {
                 ExportScreen(
                     state = state,
+                    snackbarHostState = snackbar,
                     onStartProxy = ::requestStartProxy,
                     onStopProxy = { manuallyCleared ->
                         startService(Intent(this, CaptureService::class.java).setAction(
@@ -60,6 +65,7 @@ class MainActivity : ComponentActivity() {
                         ))
                     },
                     onProxySettings = { performAction { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } },
+                    onCopyProxyHost = { performAction(R.string.proxy_host_copied) { profileActions.copyProxyHost() } },
                     onAuthorizeShizuku = { performAction { container.shizuku.requestPermission() } },
                     onOpenShizuku = { performAction {
                         val intent = packageManager.getLaunchIntentForPackage(ShizukuRepository.MANAGER_PACKAGE)
@@ -105,12 +111,12 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 action()
-                successMessage?.let { Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show() }
+                successMessage?.let { model.showMessage(getString(it)) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 Log.e("MainActivity", "Profile action failed", error)
-                Toast.makeText(this@MainActivity, R.string.action_failed, Toast.LENGTH_SHORT).show()
+                model.showMessage(getString(R.string.action_failed))
             }
         }
     }

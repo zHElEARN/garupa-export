@@ -20,6 +20,11 @@ internal class AppContainer(context: Context) {
     val catalog = CatalogRepository(CatalogStore(context), CatalogClient(), applicationScope)
     val profiles = ProfileRepository(catalog, applicationScope)
 
+    fun beginCapture() {
+        profiles.reset()
+        captures.starting()
+    }
+
     fun onCaptured(capture: CapturedResponse) {
         applicationScope.launch {
             if (captures.state.value.sessionId != capture.sessionId) return@launch

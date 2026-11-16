@@ -5,7 +5,7 @@ android-minSdk = "24"
 android-targetSdk = "37"
 androidx-activity = "1.13.0"
 kotlin = "2.4.21"
-material3 = "1.12.0-alpha03"
+material3 = "1.5.0-alpha22"
 bouncycastle = "1.87"
 serialization = "1.13.0"
 lifecycle = "2.11.0"
@@ -14,7 +14,7 @@ shizuku = "13.1.5"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
-compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
+compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
 bouncycastle-pkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 androidx-core = { module = "androidx.core:core", version = "1.19.1" }
