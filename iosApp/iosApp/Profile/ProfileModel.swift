@@ -13,25 +13,30 @@ final class ProfileModel {
     }
 
     private(set) var state = State.empty
+    var onChange: (() -> Void)?
     private let catalog: CatalogModel
     private var latestCapture: CapturedResponse?
     private var parseTask: Task<Void, Never>?
 
     init(catalog: CatalogModel) {
         self.catalog = catalog
+        try? FileManager.default.removeItem(at: ProfileExporter.temporaryDirectory)
     }
 
     func reset() {
         parseTask?.cancel()
         parseTask = nil
         latestCapture = nil
+        if case .ready(let document) = state { try? FileManager.default.removeItem(at: document.url) }
         state = .empty
+        onChange?()
     }
 
     func parse(_ response: CapturedResponse) {
         parseTask?.cancel()
         latestCapture = response
         state = .parsing
+        onChange?()
         let data = catalog.cache?.catalog
         parseTask = Task { [weak self] in
             do {
@@ -39,11 +44,16 @@ final class ProfileModel {
                 let document = try await Task.detached(priority: .userInitiated) {
                     try ProfileExporter.export(response, catalog: data)
                 }.value
-                try Task.checkCancellation()
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(at: document.url)
+                    return
+                }
                 self?.state = .ready(document)
+                self?.onChange?()
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.state = .failed(error.localizedDescription)
+                self?.onChange?()
             }
         }
     }

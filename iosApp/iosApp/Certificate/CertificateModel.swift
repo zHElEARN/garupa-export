@@ -6,7 +6,7 @@ import UIKit
 @MainActor
 @Observable
 final class CertificateModel {
-    enum State {
+    enum State: Equatable {
         case preparing, checking, trusted, untrusted
         case failed(String)
 
@@ -14,79 +14,95 @@ final class CertificateModel {
             switch self {
             case .preparing: return "正在准备"
             case .checking: return "正在检测"
-            case .trusted: return "已安装并完全信任"
-            case .untrusted: return "未安装或未完全信任"
+            case .trusted: return "系统信任验证通过"
+            case .untrusted: return "尚未通过系统信任验证"
             case .failed: return "检测失败"
             }
         }
     }
 
     private(set) var state = State.preparing
+    private(set) var profileProvided = false
     private(set) var installationError: String?
     private var authority: CertificateAuthority?
-    private let profileServer = ProfileServer()
+    private var profileServer: ProfileServer?
     private var preparation: Task<CertificateAuthority, Error>?
-    private var activation: Task<Void, Never>?
-    private var installationTask: UIBackgroundTaskIdentifier = .invalid
+    private var trustCheck: Task<Void, Never>?
+    private var sessionID: UUID?
 
-    var canInstall: Bool { authority != nil }
-    var trustedAuthority: CertificateAuthority? {
-        guard case .trusted = state else { return nil }
-        return authority
+    var canInstall: Bool { authority != nil && profileServer != nil }
+    var trustedAuthority: CertificateAuthority? { state == .trusted ? authority : nil }
+
+    func beginSession(_ id: UUID) async throws {
+        sessionID = id
+        profileProvided = false
+        installationError = nil
+        let ca = try await prepareAuthority()
+        try Task.checkCancellation()
+        guard sessionID == id else { throw CancellationError() }
+        let server = ProfileServer()
+        profileServer = server
+        try await server.start(profile: ca.configurationProfile()) { [weak self] in
+            Task { @MainActor in
+                guard let self, self.sessionID == id else { return }
+                // A completed HTTP response only proves that the profile was provided.
+                self.profileProvided = true
+            }
+        }
+        await refreshTrust()
     }
 
-    func activate() async {
-        endInstallationTask()
-        if let activation { await activation.value; return }
-        let task = Task { await refresh() }
-        activation = task
-        await task.value
-        activation = nil
-    }
-
-    private func prepare() async throws -> CertificateAuthority {
+    private func prepareAuthority() async throws -> CertificateAuthority {
+        if let authority { return authority }
         if let preparation { return try await preparation.value }
-        let task = Task {
-            let ca = try await Task.detached(priority: .userInitiated) { try CertificateAuthority() }.value
-            try await profileServer.start(profile: ca.configurationProfile())
-            return ca
-        }
+        state = .preparing
+        let task = Task.detached(priority: .userInitiated) { try CertificateAuthority() }
         preparation = task
-        return try await task.value
+        do {
+            let ca = try await task.value
+            authority = ca
+            preparation = nil
+            return ca
+        } catch {
+            preparation = nil
+            state = .failed(error.localizedDescription)
+            throw error
+        }
     }
 
-    private func refresh() async {
-        do {
-            let ca = try await prepare()
-            authority = ca
-            state = .checking
-            let trusted = try await Task.detached(priority: .userInitiated) { try ca.isTrusted() }.value
-            state = trusted ? .trusted : .untrusted
-        } catch {
-            state = .failed(error.localizedDescription)
+    func refreshTrust() async {
+        guard let authority else { return }
+        if let trustCheck { await trustCheck.value; return }
+        let task = Task {
+            // Preserve the last result while rechecking to avoid flickering between steps.
+            if state == .preparing { state = .checking }
+            do {
+                let trusted = try await Task.detached(priority: .userInitiated) { try authority.isTrusted() }.value
+                state = trusted ? .trusted : .untrusted
+            } catch {
+                state = .failed(error.localizedDescription)
+            }
         }
+        trustCheck = task
+        await task.value
+        trustCheck = nil
     }
 
     func installProfile() {
         guard canInstall else { return }
         installationError = nil
-        endInstallationTask()
-        // Safari must be able to finish downloading from the app's loopback listener.
-        installationTask = UIApplication.shared.beginBackgroundTask(withName: "CA profile download") { [weak self] in
-            Task { @MainActor in self?.endInstallationTask() }
-        }
+        let id = sessionID
         UIApplication.shared.open(ProfileServer.url) { [weak self] opened in
             Task { @MainActor in
-                guard let self, !opened else { return }
-                self.endInstallationTask()
-                self.installationError = "无法打开描述文件下载地址"
+                guard let self, self.sessionID == id, !opened else { return }
+                self.installationError = "无法打开描述文件下载地址，请稍后重试。"
             }
         }
     }
 
-    private func endInstallationTask() {
-        guard installationTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(installationTask)
-        installationTask = .invalid
+    func endSession() async {
+        sessionID = nil
+        await profileServer?.stop()
+        profileServer = nil
     }
 }

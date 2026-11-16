@@ -2,6 +2,7 @@ import Foundation
 import GarupaKit
 import Observation
 
+/// Proxy runtime only; the surrounding setup/background session is owned by AppModel.
 @MainActor
 @Observable
 final class CaptureModel {
@@ -10,17 +11,23 @@ final class CaptureModel {
     private(set) var phase = Phase.stopped
     private(set) var captured = false
     private(set) var error: String?
+    private(set) var progress: CaptureProgress?
+    private(set) var proxyVerified = false
+    private(set) var verifying = false
+    private(set) var verificationError: String?
+    private(set) var environment: ProxyEnvironment?
+    var onChange: (() -> Void)?
+    var onNetworkChange: (() -> Void)?
 
-    private let location = LocationKeeper()
+    private let verifier = SystemProxyVerifier()
     private var proxy: LocalProxy?
+    private var probe: ProxyProbe?
     private var sessionID: UUID?
+    private var verificationTask: Task<Void, Never>?
+    private var verificationID: UUID?
 
     init() {
-        location.onAuthorizationLost = { [weak self] in
-            guard let self else { return }
-            self.error = "定位权限已撤销，后台代理已停止"
-            Task { await self.stop() }
-        }
+        verifier.onNetworkChange = { [weak self] in self?.onNetworkChange?() }
     }
 
     var status: String {
@@ -32,49 +39,123 @@ final class CaptureModel {
         }
     }
 
-    func start(authority: CertificateAuthority, onCaptured: @escaping @MainActor (CapturedResponse) -> Void) async {
+    func reset() {
+        guard phase == .stopped else { return }
+        sessionID = nil
+        captured = false
+        error = nil
+        progress = nil
+        proxyVerified = false
+        verificationError = nil
+        environment = nil
+    }
+
+    func start(authority: CertificateAuthority, sessionID id: UUID,
+               onCaptured: @escaping @MainActor (CapturedResponse) -> Void) async throws {
         guard phase == .stopped else { return }
         phase = .starting
-        error = nil
-        captured = false
-        let id = UUID()
         sessionID = id
+        let probe = ProxyProbe()
+        self.probe = probe
+        onChange?()
+        let server = LocalProxy(authority: authority, onCapture: { [weak self] response in
+            Task { @MainActor in
+                guard let self, self.sessionID == id else { return }
+                self.captured = true
+                self.error = nil
+                onCaptured(response)
+                self.onChange?()
+            }
+        }, onError: { [weak self] message in
+            Task { @MainActor in
+                guard let self, self.sessionID == id, !self.captured else { return }
+                self.error = message
+                self.onChange?()
+            }
+        }, probe: probe, onProgress: { [weak self] progress in
+            Task { @MainActor in
+                guard let self, self.sessionID == id, !self.captured else { return }
+                self.progress = progress
+                self.onChange?()
+            }
+        })
+        proxy = server
         do {
-            try await location.start()
-            let server = LocalProxy(authority: authority, onCapture: { [weak self] response in
-                Task { @MainActor in
-                    guard let self, self.sessionID == id else { return }
-                    self.captured = true
-                    self.error = nil
-                    onCaptured(response)
-                }
-            }, onError: { [weak self] message in
-                Task { @MainActor in
-                    guard let self, self.sessionID == id, self.phase == .running,
-                          !self.captured else { return }
-                    self.error = message
-                }
-            })
-            proxy = server
             try await server.start()
-            guard location.isActive else { throw GarupaError.message("定位已停止，无法维持后台代理") }
+            try Task.checkCancellation()
+            guard sessionID == id else { throw CancellationError() }
             phase = .running
+            onChange?()
         } catch {
-            await shutdown()
-            self.error = error.localizedDescription
+            sessionID = nil
+            await server.stop()
+            proxy = nil
+            self.probe = nil
+            phase = .stopped
+            throw error
         }
     }
 
-    func stop() async {
-        guard phase == .running else { return }
-        phase = .stopping
-        await shutdown()
+    func checkProxy(force: Bool = false) {
+        guard phase == .running, let probe else { return }
+        let current = verifier.environment(for: probe)
+        if !force, environment == current { return }
+        verificationTask?.cancel()
+        let id = UUID()
+        verificationID = id
+        let preserveVerified = proxyVerified && environment == current
+        environment = current
+        if let error = current.configurationError {
+            proxyVerified = false
+            verifying = false
+            verificationError = error
+            onChange?()
+            return
+        }
+        proxyVerified = preserveVerified
+        verifying = true
+        verificationError = nil
+        onChange?()
+        verificationTask = Task { [weak self] in
+            guard let self else { return }
+            let verified: Bool
+            do { verified = try await verifier.verify(probe) }
+            catch {
+                guard !Task.isCancelled else { return }
+                verified = false
+            }
+            guard !Task.isCancelled, verificationID == id, phase == .running else { return }
+            verifying = false
+            guard verifier.environment(for: probe) == current else {
+                environment = nil
+                checkProxy()
+                return
+            }
+            proxyVerified = verified
+            verificationError = verified ? nil : "设置已检测到，但请求尚未通过本地代理。请确认服务器和端口后重新检测。"
+            onChange?()
+        }
     }
 
-    private func shutdown() async {
+    func invalidateVerification() {
+        verificationTask?.cancel()
+        verificationID = nil
+        verifying = false
+        proxyVerified = false
+        environment = nil
+    }
+
+    func stop() async {
+        guard phase != .stopped else { return }
+        phase = .stopping
+        sessionID = nil
+        invalidateVerification()
+        onChange?()
         await proxy?.stop()
         proxy = nil
-        location.stop()
+        probe = nil
+        progress = nil
         phase = .stopped
+        onChange?()
     }
 }

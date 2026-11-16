@@ -68,7 +68,10 @@ final class ResponseForwarder: ChannelInboundHandler {
         case .head(let head):
             guard !pair.requests.isEmpty, head.status.code != 101 else { context.close(promise: nil); return }
             informational = (100..<200).contains(head.status.code)
-            if !informational, head.status == .ok, pair.requests[0].capture, pair.capture?.claim() == true {
+            let total = head.headers.contains(name: "transfer-encoding") ? nil :
+                head.headers.first(name: "content-length").flatMap(Int.init)
+            if !informational, head.status == .ok, pair.requests[0].capture,
+               pair.capture?.claim(totalBytes: total) == true {
                 body = Data()
                 encoding = head.headers["content-encoding"].joined(separator: ",")
             }
@@ -79,7 +82,10 @@ final class ResponseForwarder: ChannelInboundHandler {
                     body = nil
                     pair.capture?.abort()
                     pair.onError("存档响应超过大小限制")
-                } else { body?.append(contentsOf: bytes.readableBytesView) }
+                } else {
+                    body?.append(contentsOf: bytes.readableBytesView)
+                    pair.capture?.received(count + bytes.readableBytes)
+                }
             }
             part = .body(.byteBuffer(bytes))
         case .end(let trailers):

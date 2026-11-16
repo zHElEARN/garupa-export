@@ -12,5 +12,18 @@
         <array>
             <string>location</string>
         </array>
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <key>NSExceptionDomains</key>
+            <dict>
+                <key>garupa-export.invalid</key>
+                <dict>
+                    <key>NSIncludesSubdomains</key>
+                    <false/>
+                    <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                    <true/>
+                </dict>
+            </dict>
+        </dict>
     </dict>
 </plist>

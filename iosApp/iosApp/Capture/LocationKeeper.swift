@@ -16,12 +16,14 @@ final class LocationKeeper: NSObject, @preconcurrency CLLocationManagerDelegate 
     }
 
     func start() async throws {
+        guard !isActive else { return }
         if manager.authorizationStatus == .notDetermined {
             try await withCheckedThrowingContinuation { continuation in
                 permission = continuation
                 manager.requestWhenInUseAuthorization()
             }
         }
+        try Task.checkCancellation()
         guard [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus) else {
             throw GarupaError.message("未获得定位权限，无法维持后台代理")
         }
@@ -35,6 +37,8 @@ final class LocationKeeper: NSObject, @preconcurrency CLLocationManagerDelegate 
     }
 
     func stop() {
+        permission?.resume(throwing: CancellationError())
+        permission = nil
         isActive = false
         manager.stopUpdatingLocation()
         manager.allowsBackgroundLocationUpdates = false

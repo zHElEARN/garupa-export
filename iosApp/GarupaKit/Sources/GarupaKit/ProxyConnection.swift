@@ -28,6 +28,7 @@ final class ProxyHandshake: ChannelInboundHandler, RemovableChannelHandler {
     private let authority: CertificateAuthority
     private let connections: Connections
     private let slot: CaptureSlot
+    private let probe: ProxyProbe
     private let onError: (String) -> Void
     private var buffer: ByteBuffer?
     private var connecting = false
@@ -35,10 +36,11 @@ final class ProxyHandshake: ChannelInboundHandler, RemovableChannelHandler {
     private var targetAPI = false
 
     init(authority: CertificateAuthority, connections: Connections, slot: CaptureSlot,
-         onError: @escaping (String) -> Void) {
+         probe: ProxyProbe, onError: @escaping (String) -> Void) {
         self.authority = authority
         self.connections = connections
         self.slot = slot
+        self.probe = probe
         self.onError = onError
     }
 
@@ -73,6 +75,15 @@ final class ProxyHandshake: ChannelInboundHandler, RemovableChannelHandler {
                 throw GarupaError.message("代理目标地址无效")
             }
             let host = urlHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+            if !connect, probe.matches(method: String(fields[0]), url: url) {
+                connecting = true
+                var response = context.channel.allocator.buffer(capacity: 256)
+                response.writeString("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n" +
+                    "Content-Length: \(probe.response.utf8.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n")
+                response.writeString(probe.response)
+                context.writeAndFlush(wrapOutboundOut(response)).whenComplete { _ in context.close(promise: nil) }
+                return
+            }
             let port = url.port ?? (connect ? 443 : 80)
             guard (1...65535).contains(port),
                   !(port == LocalProxy.port && ["localhost", "127.0.0.1", "::1"].contains(host)) else {
