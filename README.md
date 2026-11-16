@@ -1,11 +1,13 @@
 # Garupa Export
 
-Kotlin Multiplatform project with native Android and iOS user interfaces.
+A tool for iOS and Android that converts account data from the Chinese server of BanG Dream! Girls Band Party! into a [Bestdori](https://bestdori.com) profile for team analysis and score optimization.
 
-- `androidApp/`: Android app, using Kotlin and Jetpack Compose.
-- `iosApp/`: iOS app, using Swift and SwiftUI.
-- `sharedLogic/`: shared Kotlin code for both apps.
+The app runs a local proxy on your phone and uses MITM to capture the game's account data response. It decrypts and parses cards, area items, and character potentials, then generates a JSON profile that can be imported into Bestdori.
 
-Build the Android app with `./gradlew :androidApp:assembleDebug`. Open
-`iosApp/iosApp.xcodeproj` in Xcode to build and run the iOS app. The Gradle
-wrapper uses JDK 21; iOS builds also require Xcode and its command-line tools.
+## Workflow
+
+1. Start a capture session in the app and follow the prompts to complete the required certificate and proxy setup.
+2. Leave the app running in the background, reopen the game, and log in.
+3. The app automatically captures the account data response and converts it into a Bestdori profile.
+4. Copy, save, or share the generated JSON file and import it into Bestdori for team analysis.
+5. Follow the app's prompts to disable the system proxy and stop the capture service.
