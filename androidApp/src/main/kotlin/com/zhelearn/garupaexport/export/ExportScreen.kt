@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,8 +54,10 @@ import java.util.Date
 internal fun ExportScreen(
     state: ExportUiState,
     snackbarHostState: SnackbarHostState,
+    focusRequest: Int,
     onStartProxy: () -> Unit,
     onStopProxy: (manuallyCleared: Boolean) -> Unit,
+    onVerifyProxy: () -> Unit,
     onProxySettings: () -> Unit,
     onCopyProxyHost: () -> Unit,
     onAuthorizeShizuku: () -> Unit,
@@ -68,23 +69,43 @@ internal fun ExportScreen(
     onShare: (ExportedProfile) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var details by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(focusRequest) {
+        if (focusRequest > 0) listState.animateScrollToItem(0)
+    }
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.app_name)) }, scrollBehavior = scrollBehavior)
-        },
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }, scrollBehavior = scrollBehavior) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                item { CatalogSection(state.catalog, onRefreshCatalog) }
-                item { ShizukuSection(state.shizuku, onAuthorizeShizuku, onOpenShizuku) }
-                item { ProxySection(state.capture, state.catalog.available, onStartProxy, onStopProxy, onProxySettings, onCopyProxyHost) }
-                item { ProfileSection(state.profile, onRetry, onCopy, onSave, onShare) }
+                item(key = "guide") {
+                    CaptureGuideCard(state, onStartProxy, onVerifyProxy, onProxySettings,
+                        onCopyProxyHost, onAuthorizeShizuku, onOpenShizuku)
+                }
+                if (state.profile != ProfileState.Empty && state.profile != ProfileState.Parsing) {
+                    item(key = "profile") { ProfileSection(state.profile, state.catalog, onRetry,
+                        onRefreshCatalog, onCopy, onSave, onShare) }
+                }
+                if (state.capture.status == ProxyStatus.Running) {
+                    item(key = "controls") { SessionControls(state.capture, onStopProxy) }
+                }
+                item(key = "details_toggle") {
+                    TextButton(onClick = { details = !details }) {
+                        Text(stringResource(if (details) R.string.guide_hide_details else R.string.guide_show_details))
+                    }
+                }
+                if (details) {
+                    item(key = "catalog") { CatalogSection(state.catalog, onRefreshCatalog) }
+                    item(key = "shizuku") { ShizukuSection(state.shizuku, onAuthorizeShizuku, onOpenShizuku) }
+                }
             }
         }
     }
@@ -137,61 +158,28 @@ private fun ShizukuSection(status: ShizukuStatus, onAuthorize: () -> Unit, onOpe
 }
 
 @Composable
-private fun ProxySection(
-    state: CaptureState,
-    hasCatalog: Boolean,
-    onStart: () -> Unit,
-    onStop: (Boolean) -> Unit,
-    onSettings: () -> Unit,
-    onCopyHost: () -> Unit,
-) {
+private fun SessionControls(state: CaptureState, onStop: (Boolean) -> Unit) {
     var confirmStop by rememberSaveable { mutableStateOf(false) }
-    SettingsSection(stringResource(R.string.proxy_title)) {
-        ValueRow(stringResource(R.string.status), stringResource(when {
-            state.status == ProxyStatus.Starting -> R.string.proxy_starting
-            state.status == ProxyStatus.Stopping -> R.string.proxy_stopping
-            state.status == ProxyStatus.Stopped -> R.string.proxy_stopped
-            state.captured -> R.string.capture_complete
-            else -> R.string.proxy_running
-        }))
-        ValueRow(stringResource(R.string.proxy_host), stringResource(R.string.proxy_host_value))
-        ValueRow(stringResource(R.string.proxy_port), stringResource(R.string.proxy_port_value))
-        state.error?.let { ErrorRow(it) }
-        SectionActions {
-            TextButton(onClick = onCopyHost) { Text(stringResource(R.string.copy_proxy_host)) }
-            TextButton(onClick = onSettings) { Text(stringResource(R.string.proxy_settings)) }
-        }
-        SectionActions {
-            Button(
-                onClick = {
-                    when {
-                        state.status == ProxyStatus.Stopped -> onStart()
-                        state.automaticProxy -> onStop(false)
-                        else -> confirmStop = true
-                    }
-                },
-                enabled = (state.status == ProxyStatus.Stopped && hasCatalog) || state.status == ProxyStatus.Running,
-            ) {
-                Text(stringResource(if (state.status == ProxyStatus.Stopped) R.string.start_proxy else R.string.stop_proxy))
-            }
-            if (state.clearFailed) {
-                TextButton(onClick = { confirmStop = true }) { Text(stringResource(R.string.proxy_manually_cleared)) }
-            }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.guide_session_running), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = {
+            if (state.automaticProxy && !state.clearFailed) onStop(false) else confirmStop = true
+        }) { Text(stringResource(R.string.stop_proxy)) }
+        if (state.clearFailed) ErrorRow(state.error ?: stringResource(R.string.proxy_clear_failed))
     }
     if (confirmStop) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
             title = { Text(stringResource(R.string.confirm_stop_proxy)) },
+            text = { Text(stringResource(R.string.guide_stop_confirmation)) },
             confirmButton = {
-                TextButton(
-                    onClick = { confirmStop = false; onStop(true) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text(stringResource(R.string.stop_proxy)) }
+                TextButton(onClick = { confirmStop = false; onStop(true) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Text(stringResource(R.string.guide_confirm_stop))
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.cancel)) }
-            },
+            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -199,7 +187,9 @@ private fun ProxySection(
 @Composable
 private fun ProfileSection(
     state: ProfileState,
+    catalog: CatalogState,
     onRetry: () -> Unit,
+    onRefreshCatalog: () -> Unit,
     onCopy: (ExportedProfile) -> Unit,
     onSave: (ExportedProfile) -> Unit,
     onShare: (ExportedProfile) -> Unit,
@@ -214,7 +204,12 @@ private fun ProfileSection(
             is ProfileState.Failed -> {
                 ValueRow(stringResource(R.string.status), stringResource(R.string.profile_failed))
                 ErrorRow(state.message)
-                SectionActions { TextButton(onClick = onRetry) { Text(stringResource(R.string.retry_export)) } }
+                catalog.error?.let { ErrorRow(it) }
+                SectionActions {
+                    TextButton(onClick = onRefreshCatalog, enabled = !catalog.loading) { Text(stringResource(R.string.catalog_refresh)) }
+                    TextButton(onClick = onRetry, enabled = !catalog.loading) { Text(stringResource(R.string.retry_export)) }
+                }
+                if (catalog.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
             is ProfileState.Ready -> {
                 val profile = state.profile

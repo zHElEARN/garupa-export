@@ -3,6 +3,7 @@ package com.zhelearn.garupaexport.app
 import android.content.Context
 import com.zhelearn.garupaexport.capture.CaptureRepository
 import com.zhelearn.garupaexport.capture.data.CapturedResponse
+import com.zhelearn.garupaexport.capture.data.CaptureProgress
 import com.zhelearn.garupaexport.catalog.CatalogRepository
 import com.zhelearn.garupaexport.catalog.CatalogClient
 import com.zhelearn.garupaexport.catalog.CatalogStore
@@ -14,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 internal class AppContainer(context: Context) {
+    var appVisible = false
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val captures = CaptureRepository()
     val shizuku = ShizukuRepository(context)
@@ -31,5 +33,9 @@ internal class AppContainer(context: Context) {
             captures.captured(capture.sessionId)
             profiles.parse(capture)
         }
+    }
+
+    fun onCaptureProgress(sessionId: String, progress: CaptureProgress?) {
+        applicationScope.launch { captures.receiving(sessionId, progress) }
     }
 }

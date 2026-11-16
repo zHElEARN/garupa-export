@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -37,8 +38,15 @@ internal class CatalogRepository(
                 }
             }
             mutableState.value = CatalogState(cache = cached, loading = false)
-            if (cached == null) refresh()
         }
+    }
+
+    suspend fun ensureAvailable() {
+        state.first { !it.loading }
+        if (state.value.available) return
+        refresh()
+        val result = state.first { !it.loading }
+        check(result.available) { result.error ?: "Bestdori 卡牌数据下载失败，请重试" }
     }
 
     fun refresh() {

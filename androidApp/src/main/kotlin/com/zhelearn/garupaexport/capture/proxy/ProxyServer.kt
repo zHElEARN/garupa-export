@@ -29,6 +29,7 @@ internal class ProxyServer(
     private val authority: CertificateAuthority,
     private val log: (String) -> Unit,
     private val capture: (Http1.Head) -> ResponseCapture?,
+    private val probe: ProxyProbe,
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val workers = Executors.newCachedThreadPool()
@@ -95,6 +96,7 @@ internal class ProxyServer(
             headerPending = false
             client.soTimeout = 120_000
             val request = Http1.request(head)
+            if (probe.respond(head, client.getOutputStream())) return
             if (request.method != "CONNECT") {
                 val origin = Http1.toOrigin(head)
                 rejectLoop(origin.host, origin.port)

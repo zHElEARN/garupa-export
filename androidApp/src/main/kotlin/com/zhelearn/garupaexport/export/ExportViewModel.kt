@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zhelearn.garupaexport.capture.CaptureRepository
 import com.zhelearn.garupaexport.capture.CaptureState
+import com.zhelearn.garupaexport.capture.guide.guideStage
 import com.zhelearn.garupaexport.catalog.CatalogRepository
 import com.zhelearn.garupaexport.catalog.CatalogState
 import com.zhelearn.garupaexport.profile.ExportedProfile
@@ -14,6 +15,7 @@ import com.zhelearn.garupaexport.shizuku.ShizukuStatus
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 
@@ -22,7 +24,10 @@ internal data class ExportUiState(
     val profile: ProfileState = ProfileState.Empty,
     val shizuku: ShizukuStatus = ShizukuStatus.NotRunning,
     val catalog: CatalogState = CatalogState(),
-)
+    val notificationsEnabled: Boolean = true,
+) {
+    val stage get() = guideStage(capture, profile)
+}
 
 internal class ExportViewModel(
     captures: CaptureRepository,
@@ -30,7 +35,9 @@ internal class ExportViewModel(
     shizuku: ShizukuRepository,
     private val catalog: CatalogRepository,
 ) : ViewModel() {
-    val state = combine(captures.state, profiles.state, shizuku.status, catalog.state, ::ExportUiState)
+    private val notificationsEnabled = MutableStateFlow(true)
+    val state = combine(captures.state, profiles.state, shizuku.status, catalog.state,
+        notificationsEnabled, ::ExportUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExportUiState())
 
     private var pendingSave: ExportedProfile? = null
@@ -41,6 +48,7 @@ internal class ExportViewModel(
 
     fun retryExport() = profiles.retry()
     fun refreshCatalog() = catalog.refresh()
+    fun updateNotificationPermission(enabled: Boolean) { notificationsEnabled.value = enabled }
 
     fun prepareSave(profile: ExportedProfile) {
         pendingSave = profile
