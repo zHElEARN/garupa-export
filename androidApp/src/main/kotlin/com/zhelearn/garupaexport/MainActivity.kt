@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.net.toUri
 import com.zhelearn.garupaexport.app.GarupaExportApplication
 import com.zhelearn.garupaexport.capture.CaptureService
 import com.zhelearn.garupaexport.capture.CaptureNotifications
@@ -31,6 +32,7 @@ import com.zhelearn.garupaexport.capture.ProxyStatus
 import com.zhelearn.garupaexport.export.ExportScreen
 import com.zhelearn.garupaexport.export.ExportViewModel
 import com.zhelearn.garupaexport.export.ProfileActions
+import com.zhelearn.garupaexport.profile.ProfileState
 import com.zhelearn.garupaexport.shizuku.ShizukuRepository
 import com.zhelearn.garupaexport.ui.theme.GarupaTheme
 import kotlinx.coroutines.CancellationException
@@ -48,7 +50,7 @@ class MainActivity : ComponentActivity() {
     }
     private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val profile = model.takePendingSave()
-        if (uri != null && profile != null) performAction(R.string.profile_saved) {
+        if (uri != null && profile != null) performAction(R.string.profile_saved, R.string.save_failed) {
             profileActions.save(profile.json, uri)
         }
     }
@@ -72,27 +74,39 @@ class MainActivity : ComponentActivity() {
                     focusRequest = focusRequest,
                     onStartProxy = ::requestStartProxy,
                     onStopProxy = { manuallyCleared ->
-                        startService(Intent(this, CaptureService::class.java).setAction(
-                            if (manuallyCleared) CaptureService.ACTION_STOP_MANUAL else CaptureService.ACTION_STOP,
-                        ))
+                        performAction(failureMessage = R.string.finish_failed) {
+                            startService(Intent(this, CaptureService::class.java).setAction(
+                                if (manuallyCleared) CaptureService.ACTION_STOP_MANUAL else CaptureService.ACTION_STOP,
+                            ))
+                        }
                     },
-                    onProxySettings = { performAction { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } },
+                    onProxySettings = { performAction(failureMessage = R.string.settings_failed) { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } },
                     onVerifyProxy = ::recheckProxy,
-                    onCopyProxyHost = { performAction(R.string.proxy_host_copied) { profileActions.copyProxyHost() } },
-                    onAuthorizeShizuku = { performAction { container.shizuku.requestPermission() } },
-                    onOpenShizuku = { performAction {
+                    onCopyProxyHost = { performAction(clipboardFeedback(R.string.proxy_host_copied), R.string.copy_failed) { profileActions.copyProxyHost() } },
+                    onAuthorizeShizuku = { performAction(failureMessage = R.string.shizuku_authorize_failed) { container.shizuku.requestPermission() } },
+                    onOpenShizuku = { performAction(failureMessage = R.string.shizuku_open_failed) {
                         val intent = packageManager.getLaunchIntentForPackage(ShizukuRepository.MANAGER_PACKAGE)
                             ?: error("无法打开 Shizuku")
                         startActivity(intent)
                     } },
+                    onNotificationSettings = { performAction(failureMessage = R.string.settings_failed) {
+                        startActivity(if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                        else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri()))
+                    } },
                     onRetry = model::retryExport,
+                    onRefreshAndRetry = model::refreshAndRetryExport,
                     onRefreshCatalog = model::refreshCatalog,
-                    onCopy = { profile -> performAction(R.string.profile_copied) { profileActions.copy(profile.json) } },
+                    onCopy = { profile -> performAction(clipboardFeedback(R.string.profile_copied), R.string.copy_failed) { profileActions.copy(profile.json) } },
                     onSave = { profile ->
-                        model.prepareSave(profile)
-                        saveDocument.launch(profile.fileName)
+                        performAction(failureMessage = R.string.save_failed) {
+                            if (model.prepareSave(profile)) {
+                                try { saveDocument.launch(profile.fileName) }
+                                catch (error: Exception) { model.takePendingSave(); throw error }
+                            }
+                        }
                     },
-                    onShare = { profile -> performAction { profileActions.share(profile) } },
+                    onShare = { profile -> performAction(failureMessage = R.string.share_failed) { profileActions.share(profile) } },
                 )
             }
         }
@@ -132,6 +146,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStartProxy() {
+        if (container.captures.state.value.status != ProxyStatus.Stopped || container.profiles.state.value == ProfileState.Parsing) return
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
             !notificationPermissionRequested) {
@@ -141,6 +156,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startProxy() {
+        if (container.captures.state.value.status != ProxyStatus.Stopped || container.profiles.state.value == ProfileState.Parsing) return
+        container.beginCapture()
         try {
             val intent = Intent(this, CaptureService::class.java)
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
@@ -150,7 +167,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun performAction(successMessage: Int? = null, action: suspend () -> Unit) {
+    private fun clipboardFeedback(message: Int): Int? = if (Build.VERSION.SDK_INT >= 33) null else message
+
+    private fun performAction(successMessage: Int? = null, failureMessage: Int = R.string.action_failed, action: suspend () -> Unit) {
         lifecycleScope.launch {
             try {
                 action()
@@ -159,7 +178,7 @@ class MainActivity : ComponentActivity() {
                 throw cancelled
             } catch (error: Exception) {
                 Log.e("MainActivity", "Profile action failed", error)
-                model.showMessage(getString(R.string.action_failed))
+                model.showMessage(getString(failureMessage))
             }
         }
     }

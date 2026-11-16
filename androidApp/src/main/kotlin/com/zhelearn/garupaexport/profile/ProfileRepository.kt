@@ -27,7 +27,7 @@ internal sealed interface ProfileState {
     data object Empty : ProfileState
     data object Parsing : ProfileState
     data class Ready(val profile: ExportedProfile) : ProfileState
-    data class Failed(val message: String) : ProfileState
+    data class Failed(val message: String, val refreshSuggested: Boolean = false) : ProfileState
 }
 
 internal class ProfileRepository(
@@ -47,13 +47,17 @@ internal class ProfileRepository(
     }
 
     // Called on the main thread; IO work outlives individual activities.
-    fun parse(capture: CapturedResponse) {
+    fun parse(capture: CapturedResponse, refreshCatalog: Boolean = false) {
         if (mutableState.value == ProfileState.Parsing && latestCapture === capture) return
         parseJob?.cancel()
         latestCapture = capture
         mutableState.value = ProfileState.Parsing
         parseJob = scope.launch {
             try {
+                if (refreshCatalog) {
+                    val refreshed = catalog.refreshAndWait()
+                    check(refreshed.error == null) { refreshed.error.orEmpty() }
+                }
                 val data = checkNotNull(catalog.state.value.cache) { "请先下载 Bestdori 卡牌数据" }.catalog
                 val profile = withContext(Dispatchers.IO) { export(capture, data) }
                 mutableState.value = ProfileState.Ready(profile)
@@ -61,13 +65,15 @@ internal class ProfileRepository(
                 throw cancelled
             } catch (error: Exception) {
                 Log.e("ProfileRepository", "Profile export failed", error)
-                mutableState.value = ProfileState.Failed(error.message ?: error.javaClass.simpleName)
+                mutableState.value = ProfileState.Failed(error.message ?: "档案解析失败，请重新获取存档",
+                    refreshSuggested = refreshCatalog || error is CatalogMismatchException || catalog.state.value.cache == null)
             }
         }
     }
 
-    fun retry() {
-        latestCapture?.let(::parse)
+    fun retry(refreshCatalog: Boolean = false) {
+        if (mutableState.value == ProfileState.Parsing) return
+        latestCapture?.let { parse(it, refreshCatalog) }
     }
 
     private fun export(capture: CapturedResponse, data: CardCatalog): ExportedProfile {

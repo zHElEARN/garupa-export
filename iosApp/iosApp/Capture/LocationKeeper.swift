@@ -15,6 +15,11 @@ final class LocationKeeper: NSObject, @preconcurrency CLLocationManagerDelegate 
         manager.delegate = self
     }
 
+    var authorizationDenied: Bool {
+        !CLLocationManager.locationServicesEnabled() ||
+            manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted
+    }
+
     func start() async throws {
         guard !isActive else { return }
         if manager.authorizationStatus == .notDetermined {

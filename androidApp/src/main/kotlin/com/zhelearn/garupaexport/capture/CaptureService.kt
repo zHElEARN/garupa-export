@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
@@ -41,6 +42,8 @@ class CaptureService : Service() {
     private var proxy: ProxyServer? = null
     private var systemProxy: ShizukuProxySession? = null
     private var verification: Job? = null
+    private var startup: Job? = null
+    private var configuration: Job? = null
     private var stopped = false
     private var starting = false
     private var configuring = false
@@ -69,7 +72,7 @@ class CaptureService : Service() {
     private fun startCapture() {
         if (starting) return
         starting = true
-        container.beginCapture()
+        if (container.captures.state.value.status != ProxyStatus.Starting) container.beginCapture()
         notifications.clearResult()
         try {
             val notification = notifications.foreground(GuideStage.Preparing, null)
@@ -81,7 +84,7 @@ class CaptureService : Service() {
             return
         }
         observePresentation()
-        scope.launch {
+        startup = scope.launch {
             try {
                 container.catalog.ensureAvailable()
                 container.captures.phase(CapturePhase.StartingProxy)
@@ -141,7 +144,7 @@ class CaptureService : Service() {
                 Log.w("CaptureService", "Unable to observe network changes; foreground checks remain available", error)
             }.collect { if (!configuring) checkProxy() }
         }
-        scope.launch {
+        configuration = scope.launch {
             container.shizuku.status.collect { status ->
                 val capture = container.captures.state.value
                 if (status == ShizukuStatus.Authorized && systemProxy == null && !configuring && !automaticAttempted &&
@@ -213,10 +216,13 @@ class CaptureService : Service() {
 
     private fun stopCapture(manuallyCleared: Boolean) {
         if (!starting) { stopSelf(); return }
-        if (container.captures.state.value.status != ProxyStatus.Running || configuring) return
+        if (container.captures.state.value.status == ProxyStatus.Stopping) return
         verification?.cancel()
         container.captures.stopping()
         scope.launch {
+            startup?.cancelAndJoin()
+            configuration?.cancelAndJoin()
+            configuring = false
             try {
                 if (!manuallyCleared) systemProxy?.clear()
             } catch (cancelled: CancellationException) {

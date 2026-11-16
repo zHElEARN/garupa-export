@@ -53,7 +53,7 @@ final class CaptureNotifications: NSObject, UNUserNotificationCenterDelegate {
             guard let self, !Task.isCancelled, sessionID == id, lastStage == stage, !appVisible else { return }
             let content = UNMutableNotificationContent()
             content.title = stage.title
-            content.body = stage == .complete ? "档案已生成，点击返回应用查看和复制。" : stage.description
+            content.body = stage.description
             content.sound = .default
             content.threadIdentifier = id.uuidString
             content.userInfo = ["sessionID": id.uuidString, "stage": stage.rawValue]

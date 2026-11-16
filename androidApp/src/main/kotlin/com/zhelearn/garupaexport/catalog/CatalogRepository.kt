@@ -49,6 +49,12 @@ internal class CatalogRepository(
         check(result.available) { result.error ?: "Bestdori 卡牌数据下载失败，请重试" }
     }
 
+    suspend fun refreshAndWait(): CatalogState {
+        state.first { !it.loading }
+        refresh()
+        return state.first { !it.loading }
+    }
+
     fun refresh() {
         if (mutableState.value.loading) return
         val previous = mutableState.value.cache

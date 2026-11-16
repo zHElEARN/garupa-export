@@ -49,6 +49,9 @@ data class BestdoriProfile(
 
 data class ProfileExport(val profile: BestdoriProfile, val warnings: List<String>)
 
+/** A refreshed catalog can resolve missing cards or changed stat bonuses. */
+class CatalogMismatchException(message: String) : IllegalArgumentException(message)
+
 object BestdoriExporter {
     private val areaLayout = linkedMapOf(
         "PoppinParty" to listOf(1, 6, 11, 16, 21, 26, 31),
@@ -67,9 +70,9 @@ object BestdoriExporter {
 
     fun export(account: GameAccount, catalog: CardCatalog): ProfileExport {
         val missing = account.cards.map { it.id }.filter { it !in catalog.cards }
-        require(missing.isEmpty()) {
-            "Bestdori 数据缺少卡牌 ${missing.take(10).joinToString()}，请刷新卡牌数据后重新解析"
-        }
+        if (missing.isNotEmpty()) throw CatalogMismatchException(
+            "Bestdori 数据缺少卡牌 ${missing.take(10).joinToString()}，请刷新卡牌数据后重新解析",
+        )
         require(account.cards.map { it.id }.distinct().size == account.cards.size) { "账户包含重复卡牌" }
         val cards = account.cards.sortedBy { it.id }.map { card ->
             val info = catalog.cards.getValue(card.id)
@@ -118,6 +121,6 @@ object BestdoriExporter {
             if (bonus == card.appendBonus) return ep
             if (ep < info.episodeBonuses.size) bonus += info.episodeBonuses[ep]
         }
-        error("卡牌 ${card.id} 的属性加成与 Bestdori 数据不匹配，请刷新卡牌数据后重新解析")
+        throw CatalogMismatchException("卡牌 ${card.id} 的属性加成与 Bestdori 数据不匹配，请刷新卡牌数据后重新解析")
     }
 }

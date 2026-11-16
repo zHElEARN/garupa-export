@@ -16,6 +16,7 @@ final class AppModel {
     let notifications = CaptureNotifications.shared
     private(set) var phase = SessionPhase.idle
     private(set) var sessionError: String?
+    private(set) var locationNeedsSettings = false
     private(set) var sessionID: UUID?
     private let background = LocationKeeper()
     private let networkAccess = NetworkAccessRequest()
@@ -31,7 +32,8 @@ final class AppModel {
         profiles.onChange = { [weak self] in self?.publishStage() }
         background.onAuthorizationLost = { [weak self] in
             guard let self, self.sessionID != nil else { return }
-            self.sessionError = "定位权限已撤销，请在设置中恢复权限后继续。"
+            self.sessionError = "定位权限已关闭。"
+            self.locationNeedsSettings = true
             self.capture.invalidateVerification()
             // A manually configured proxy may still point here. Keep its server alive.
             self.publishStage()
@@ -68,6 +70,8 @@ final class AppModel {
     }
 
     func activate() async {
+        locationNeedsSettings = background.authorizationDenied
+        if sessionActive && !locationNeedsSettings && !background.isActive && !busy { resumeBackground() }
         await notifications.refreshPermission()
         await catalog.activate()
         if UIApplication.shared.applicationState == .active { recheck(forceProxyCheck: true) }
@@ -182,8 +186,12 @@ final class AppModel {
                 try await background.start()
                 try validateSession(id)
                 sessionError = nil
+                locationNeedsSettings = false
             } catch {
-                if sessionID == id { sessionError = error.localizedDescription }
+                if sessionID == id {
+                    sessionError = error.localizedDescription
+                    locationNeedsSettings = background.authorizationDenied
+                }
             }
             setupTask = nil
             if sessionID == id {
@@ -195,8 +203,10 @@ final class AppModel {
 
     func stopSession() async {
         guard phase != .stopping else { return }
+        let preparing = phase == .preparing
         sessionID = nil
         phase = .stopping
+        if preparing && catalog.cache == nil { catalog.cancelRefresh() }
         let pending = setupTask
         pending?.cancel()
         monitorTask?.cancel()
@@ -225,6 +235,7 @@ final class AppModel {
         await certificates.endSession()
         guard sessionID == id else { return }
         sessionError = error.localizedDescription
+        locationNeedsSettings = background.authorizationDenied
         phase = .failed
         publishStage()
         sessionID = nil

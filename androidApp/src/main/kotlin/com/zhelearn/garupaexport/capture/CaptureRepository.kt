@@ -69,7 +69,7 @@ internal class CaptureRepository {
     }
 
     fun stopFailed(message: String) {
-        mutableState.update { it.copy(status = ProxyStatus.Running, error = message, clearFailed = true) }
+        mutableState.update { it.copy(status = ProxyStatus.Running, phase = CapturePhase.AwaitingProxy, error = message, clearFailed = true) }
     }
 
     fun captured(sessionId: String) = updateSession(sessionId) { it.copy(captured = true) }
@@ -79,7 +79,7 @@ internal class CaptureRepository {
     }
 
     fun stopped() {
-        mutableState.update { it.copy(status = ProxyStatus.Stopped, phase = CapturePhase.Idle,
+        mutableState.update { it.copy(status = ProxyStatus.Stopped, sessionId = null, phase = CapturePhase.Idle,
             automaticProxy = false, clearFailed = false, proxyVerified = false, progress = null) }
     }
 

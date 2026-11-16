@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zhelearn.garupaexport.capture.CaptureRepository
 import com.zhelearn.garupaexport.capture.CaptureState
+import com.zhelearn.garupaexport.capture.ProxyStatus
 import com.zhelearn.garupaexport.capture.guide.guideStage
 import com.zhelearn.garupaexport.catalog.CatalogRepository
 import com.zhelearn.garupaexport.catalog.CatalogState
@@ -27,6 +28,7 @@ internal data class ExportUiState(
     val notificationsEnabled: Boolean = true,
 ) {
     val stage get() = guideStage(capture, profile)
+    val canStart get() = capture.status == ProxyStatus.Stopped && profile != ProfileState.Parsing
 }
 
 internal class ExportViewModel(
@@ -47,11 +49,14 @@ internal class ExportViewModel(
     fun showMessage(message: String) { messageQueue.trySend(message) }
 
     fun retryExport() = profiles.retry()
+    fun refreshAndRetryExport() = profiles.retry(refreshCatalog = true)
     fun refreshCatalog() = catalog.refresh()
     fun updateNotificationPermission(enabled: Boolean) { notificationsEnabled.value = enabled }
 
-    fun prepareSave(profile: ExportedProfile) {
+    fun prepareSave(profile: ExportedProfile): Boolean {
+        if (pendingSave != null) return false
         pendingSave = profile
+        return true
     }
 
     fun takePendingSave(): ExportedProfile? = pendingSave.also { pendingSave = null }
