@@ -66,9 +66,11 @@ struct ContentView: View {
             .toolbar {
                 if app.sessionActive && app.phase != .stopping {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button(app.capture.phase == .running ? "结束获取" : "取消获取") {
-                            if app.capture.phase == .running { showFinish = true }
-                            else { Task { await app.stopSession() } }
+                        if app.capture.phase == .running {
+                            Button("结束获取", role: .destructive) { showFinish = true }
+                                .tint(Color(uiColor: .systemRed))
+                        } else {
+                            Button("取消获取") { Task { await app.stopSession() } }
                         }
                     }
                 }

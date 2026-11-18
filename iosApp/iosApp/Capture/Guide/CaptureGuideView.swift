@@ -15,16 +15,9 @@ struct CaptureGuideView: View {
                     .frame(maxWidth: .infinity)
             } else {
                 VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(app.stage.title)
-                            .font(.title2.bold())
-                            .accessibilityAddTraits(.isHeader)
-                        if app.stage == .certificate {
-                            Label(app.certificates.state.title, systemImage: "shield")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    Text(app.stage.title)
+                        .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
                     actions
                 }
             }

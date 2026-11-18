@@ -1,6 +1,5 @@
 import Foundation
 
-/// Current task titles are also used by background notifications.
 enum GuideStage: String {
     case welcome, preparing, certificate, startingProxy, configureProxy, verifyingProxy
     case waitingForGame, receiving, generating, complete, conversionFailed
@@ -30,7 +29,7 @@ enum GuideStage: String {
         case .welcome: return "将游戏存档转换为可导入 Bestdori 的档案。"
         case .certificate: return "下载后在系统设置中安装，并开启完全信任。"
         case .configureProxy: return "设置 → Wi-Fi → 当前网络 → 配置代理 → 手动。保存后返回应用。"
-        case .waitingForGame: return "重新打开游戏并登录。游戏已打开时，请先从最近任务中关闭。"
+        case .waitingForGame: return "现在可以打开游戏并登录了。如果游戏还在后台，请先在多任务界面上滑关闭游戏，再重新打开。"
         case .receiving: return "请保持游戏连接。"
         case .complete: return "返回应用导出档案。"
         case .conversionFailed: return "返回应用查看原因并重试。"
@@ -39,10 +38,12 @@ enum GuideStage: String {
         }
     }
 
-    var isMilestone: Bool {
+    var milestoneNotification: (title: String, body: String)? {
         switch self {
-        case .configureProxy, .waitingForGame, .complete, .conversionFailed, .backgroundRequired, .startFailed: return true
-        default: return false
+        case .configureProxy: return ("证书已受信任", "请返回 Garupa Export 查看下一步。")
+        case .waitingForGame: return ("代理设置已完成", "请返回 Garupa Export 查看下一步。")
+        case .complete, .conversionFailed, .backgroundRequired, .startFailed: return (title, description)
+        default: return nil
         }
     }
 

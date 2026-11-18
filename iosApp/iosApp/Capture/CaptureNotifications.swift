@@ -46,14 +46,14 @@ final class CaptureNotifications: NSObject, UNUserNotificationCenterDelegate {
         guard let id, sessionID == id, lastStage != stage else { return }
         lastStage = stage
         delivery?.cancel()
-        guard stage.isMilestone, enabled, !appVisible else { return }
+        guard let message = stage.milestoneNotification, enabled, !appVisible else { return }
         delivery = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(250)) }
             catch { return }
             guard let self, !Task.isCancelled, sessionID == id, lastStage == stage, !appVisible else { return }
             let content = UNMutableNotificationContent()
-            content.title = stage.title
-            content.body = stage.description
+            content.title = message.title
+            content.body = message.body
             content.sound = .default
             content.threadIdentifier = id.uuidString
             content.userInfo = ["sessionID": id.uuidString, "stage": stage.rawValue]
