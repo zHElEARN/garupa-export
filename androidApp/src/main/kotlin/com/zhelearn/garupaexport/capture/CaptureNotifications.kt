@@ -17,6 +17,7 @@ import com.zhelearn.garupaexport.capture.guide.GuideStage
 
 internal class CaptureNotifications(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
+    private var proxyReadyAlertPosted = false
 
     init {
         if (Build.VERSION.SDK_INT >= 26) {
@@ -27,21 +28,20 @@ internal class CaptureNotifications(private val context: Context) {
         }
     }
 
-    fun foreground(stage: GuideStage, sessionId: String?): Notification {
-        val description = context.getString(stage.description)
+    fun foreground(stage: GuideStage, sessionId: String?, receivingPercent: Int? = null): Notification {
         val builder = NotificationCompat.Builder(context, SERVICE_CHANNEL)
-            .setContentTitle(context.getString(stage.title))
-            .setContentText(description)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(description))
+            .setContentTitle(context.getString(R.string.capture_service_running))
             .setSmallIcon(R.drawable.ic_stat_capture)
             .setContentIntent(openGuide(sessionId))
             .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOnlyAlertOnce(true)
-        if (stage in setOf(GuideStage.Preparing, GuideStage.Starting, GuideStage.SettingProxy,
-                GuideStage.Verifying, GuideStage.Receiving, GuideStage.Generating)) {
-            builder.setProgress(0, 0, true)
+        if (stage == GuideStage.Receiving) {
+            if (receivingPercent == null) builder.setProgress(0, 0, true)
+            else builder.setProgress(100, receivingPercent, false)
         }
         if (stage == GuideStage.ConfigureProxy) {
             builder.addAction(0, context.getString(R.string.guide_wifi_settings), PendingIntent.getActivity(
@@ -53,23 +53,27 @@ internal class CaptureNotifications(private val context: Context) {
                 context, 3, verify, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             ))
         } else {
-            builder.addAction(0, context.getString(if (stage == GuideStage.Complete)
-                R.string.guide_view_profile else R.string.guide_view_step), openGuide(sessionId))
+            builder.addAction(0, context.getString(R.string.capture_return_to_app), openGuide(sessionId))
         }
         return builder.build()
     }
 
-    fun update(stage: GuideStage, sessionId: String?) {
-        manager.notify(SERVICE_NOTIFICATION_ID, foreground(stage, sessionId))
+    fun update(stage: GuideStage, sessionId: String?, receivingPercent: Int?) {
+        manager.notify(SERVICE_NOTIFICATION_ID, foreground(stage, sessionId, receivingPercent))
     }
 
     fun milestone(stage: GuideStage, sessionId: String?) {
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val title = if (stage == GuideStage.OpenGame) R.string.capture_proxy_ready else stage.title
+        val body = when (stage) {
+            GuideStage.OpenGame -> R.string.capture_view_next_step
+            GuideStage.StartFailed -> R.string.capture_view_failure
+            else -> stage.description
+        }
         val notification = NotificationCompat.Builder(context, RESULT_CHANNEL)
-            .setContentTitle(context.getString(stage.title))
-            .setContentText(context.getString(if (stage == GuideStage.Complete)
-                R.string.capture_notification_text else stage.description))
+            .setContentTitle(context.getString(title))
+            .setContentText(context.getString(body))
             .setSmallIcon(R.drawable.ic_stat_capture)
             .setContentIntent(openGuide(sessionId))
             .setAutoCancel(true)
@@ -77,9 +81,17 @@ internal class CaptureNotifications(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
         manager.notify(RESULT_NOTIFICATION_ID, notification)
+        proxyReadyAlertPosted = stage == GuideStage.OpenGame
     }
 
-    fun clearResult() = manager.cancel(RESULT_NOTIFICATION_ID)
+    fun clearProxyReady() {
+        if (proxyReadyAlertPosted) clearResult()
+    }
+
+    fun clearResult() {
+        manager.cancel(RESULT_NOTIFICATION_ID)
+        proxyReadyAlertPosted = false
+    }
 
     private fun openGuide(sessionId: String?): PendingIntent = PendingIntent.getActivity(
         context, 0,

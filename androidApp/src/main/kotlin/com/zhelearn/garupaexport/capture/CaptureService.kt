@@ -26,7 +26,6 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,20 +122,49 @@ class CaptureService : Service() {
 
     private fun observePresentation() {
         scope.launch {
+            var lastUpdate: NotificationState? = null
+            var verifiedSessionId: String? = null
+            var alert: Job? = null
             combine(container.captures.state, container.profiles.state) { capture, profile ->
-                guideStage(capture, profile) to capture.sessionId
-            }.distinctUntilChanged().collectLatest { (stage, sessionId) ->
-                // Coalesce brief setup/conversion transitions instead of flooding the notification manager.
-                delay(250)
-                Log.d("CaptureService", "Guide stage: $stage; app visible: ${container.appVisible}")
-                notifications.update(stage, sessionId)
-                if (!container.appVisible && stage in setOf(GuideStage.OpenGame, GuideStage.Complete,
-                        GuideStage.ConversionFailed)) {
-                    notifications.milestone(stage, sessionId)
+                val stage = guideStage(capture, profile)
+                val progress = capture.progress?.takeIf { stage == GuideStage.Receiving }
+                val percent = progress?.totalBytes?.takeIf { it > 0 }?.let { total ->
+                    ((progress.receivedBytes.toLong() * 100) / total).coerceIn(0, 100).toInt()
+                }
+                NotificationState(stage, capture.sessionId, capture.proxyVerified, percent)
+            }.distinctUntilChanged().collect { update ->
+                val (stage, sessionId, proxyVerified, receivingPercent) = update
+                val stageChanged = stage != lastUpdate?.stage || sessionId != lastUpdate?.sessionId
+                if (stageChanged) alert?.cancel()
+                if (stageChanged || receivingPercent != lastUpdate?.receivingPercent) {
+                    notifications.update(stage, sessionId, receivingPercent)
+                }
+                lastUpdate = update
+                val hasResult = stage == GuideStage.Complete || stage == GuideStage.ConversionFailed
+                if (stage == GuideStage.ConfigureProxy || stage == GuideStage.Stopping ||
+                    (hasResult && container.appVisible)) {
+                    notifications.clearProxyReady()
+                }
+
+                val firstVerification = sessionId != null && proxyVerified && sessionId != verifiedSessionId
+                if (firstVerification) verifiedSessionId = sessionId
+                val shouldAlert = (stage == GuideStage.OpenGame && firstVerification) || (hasResult && stageChanged)
+                if (shouldAlert && !container.appVisible) {
+                    alert = launch {
+                        delay(250)
+                        if (!container.appVisible) notifications.milestone(stage, sessionId)
+                    }
                 }
             }
         }
     }
+
+    private data class NotificationState(
+        val stage: GuideStage,
+        val sessionId: String?,
+        val proxyVerified: Boolean,
+        val receivingPercent: Int?,
+    )
 
     private fun observeEnvironment() {
         scope.launch {
@@ -240,6 +268,7 @@ class CaptureService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        notifications.clearProxyReady()
         synchronized(lock) {
             stopped = true
             proxy?.close()

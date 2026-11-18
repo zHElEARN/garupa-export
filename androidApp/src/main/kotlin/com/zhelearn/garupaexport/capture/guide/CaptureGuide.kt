@@ -7,7 +7,7 @@ import com.zhelearn.garupaexport.capture.CaptureState
 import com.zhelearn.garupaexport.capture.ProxyStatus
 import com.zhelearn.garupaexport.profile.ProfileState
 
-/** Shared presentation rules for the native screen and system notifications. No persisted step number. */
+/** Presentation states derived from the current capture and profile. */
 internal enum class GuideStage(@param:StringRes val title: Int, @param:StringRes val description: Int) {
     Welcome(R.string.guide_welcome_title, R.string.guide_welcome_body),
     Preparing(R.string.guide_preparing_title, R.string.guide_preparing_body),
@@ -21,7 +21,13 @@ internal enum class GuideStage(@param:StringRes val title: Int, @param:StringRes
     Complete(R.string.guide_complete_title, R.string.guide_complete_body),
     ConversionFailed(R.string.guide_conversion_failed_title, R.string.guide_conversion_failed_body),
     StartFailed(R.string.guide_start_failed_title, R.string.guide_start_failed_body),
-    Stopping(R.string.proxy_stopping, R.string.guide_stopping_body),
+    Stopping(R.string.proxy_stopping, R.string.guide_stopping_body);
+
+    val isIndeterminateProgress: Boolean
+        get() = when (this) {
+            Preparing, Starting, SettingProxy, Verifying, Generating, Stopping -> true
+            else -> false
+        }
 }
 
 internal fun guideStage(capture: CaptureState, profile: ProfileState): GuideStage = when {

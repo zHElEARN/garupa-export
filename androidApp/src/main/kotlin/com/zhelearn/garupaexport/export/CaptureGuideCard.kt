@@ -4,8 +4,10 @@ import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -13,6 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -21,6 +24,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.zhelearn.garupaexport.R
 import com.zhelearn.garupaexport.capture.guide.GuideStage
@@ -41,27 +45,46 @@ internal fun CaptureGuide(
     val stage = state.stage
     val context = LocalContext.current
     val copyHostLabel = stringResource(R.string.copy_proxy_host)
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(stringResource(if (stage == GuideStage.Generating && state.catalog.loading) R.string.catalog_refreshing else stage.title), style = MaterialTheme.typography.headlineSmall,
+    if (stage.isIndeterminateProgress) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CircularProgressIndicator(Modifier.size(32.dp))
+            Text(
+                stringResource(if (stage == GuideStage.Generating && state.catalog.loading)
+                    R.string.catalog_refreshing else stage.title),
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
+        return
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(stringResource(stage.title), style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
         val description = stringResource(stage.description)
-        if (description.isNotBlank()) Text(description, style = MaterialTheme.typography.bodyLarge)
+        if (description.isNotBlank()) {
+            Text(description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         when (stage) {
             GuideStage.Welcome, GuideStage.StartFailed -> {
                 state.capture.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(onClick = onStart, enabled = state.canStart) {
+                Button(onClick = onStart, enabled = state.canStart, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(if (stage == GuideStage.Welcome) R.string.guide_start else R.string.guide_start_retry))
                 }
             }
-            GuideStage.Preparing, GuideStage.Starting, GuideStage.SettingProxy,
-            GuideStage.Verifying, GuideStage.Generating, GuideStage.Stopping -> {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
             GuideStage.ConfigureProxy -> {
                 val offerAuthorization = state.shizuku == ShizukuStatus.Unauthorized && !manualProxy
-                state.capture.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                state.capture.error?.takeUnless { state.capture.clearFailed }?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
                 if (offerAuthorization) {
-                    Button(onClick = onAuthorizeShizuku) { Text(stringResource(R.string.guide_shizuku_authorize)) }
+                    Button(onClick = onAuthorizeShizuku, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.guide_shizuku_authorize))
+                    }
                     TextButton(onClick = { onManualProxyChange(true) }) { Text(stringResource(R.string.guide_manual_setup)) }
                 } else {
                     if (state.capture.environment?.wifi == false) {
@@ -80,7 +103,9 @@ internal fun CaptureGuide(
                     state.capture.verificationError?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Button(onClick = onSettings) { Text(stringResource(R.string.guide_wifi_settings)) }
+                    Button(onClick = onSettings, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.guide_wifi_settings))
+                    }
                     if (state.capture.verificationError != null) {
                         OutlinedButton(onClick = onVerify) { Text(stringResource(R.string.guide_verify_again)) }
                     }
@@ -103,7 +128,7 @@ internal fun CaptureGuide(
             GuideStage.Receiving -> {
                 val progress = state.capture.progress
                 val total = progress?.totalBytes
-                if (progress != null && total != null) {
+                if (progress != null && total != null && total > 0) {
                     LinearProgressIndicator(progress = { (progress.receivedBytes.toFloat() / total).coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth())
                     Text(stringResource(R.string.guide_receiving_size_total,
@@ -115,7 +140,8 @@ internal fun CaptureGuide(
                         Formatter.formatShortFileSize(context, progress.receivedBytes.toLong())))
                 }
             }
-            GuideStage.Complete, GuideStage.ConversionFailed -> Unit
+            GuideStage.Preparing, GuideStage.Starting, GuideStage.SettingProxy, GuideStage.Verifying,
+            GuideStage.Generating, GuideStage.Stopping, GuideStage.Complete, GuideStage.ConversionFailed -> Unit
         }
     }
 }

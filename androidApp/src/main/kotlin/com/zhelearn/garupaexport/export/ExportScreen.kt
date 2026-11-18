@@ -1,6 +1,7 @@
 package com.zhelearn.garupaexport.export
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,8 +38,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zhelearn.garupaexport.R
 import com.zhelearn.garupaexport.capture.CaptureState
@@ -72,7 +77,11 @@ internal fun ExportScreen(
 ) {
     var settings by rememberSaveable { mutableStateOf(false) }
     var manualProxy by rememberSaveable(state.capture.sessionId) { mutableStateOf(false) }
+    var confirmStop by rememberSaveable(state.capture.sessionId) { mutableStateOf(false) }
     var warnings by rememberSaveable { mutableStateOf(false) }
+    val capture = state.capture
+    val hasProfile = state.profile is ProfileState.Ready || state.profile is ProfileState.Failed
+    val progressOnly = state.stage.isIndeterminateProgress
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val settingsListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val warningsListState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -81,6 +90,7 @@ internal fun ExportScreen(
         if (focusRequest > 0) {
             settings = false
             warnings = false
+            confirmStop = false
             listState.animateScrollToItem(0)
         }
     }
@@ -93,15 +103,36 @@ internal fun ExportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(if (settings) R.string.settings else if (warnings)
-                    R.string.profile_warning_details else R.string.app_name)) },
+                title = {
+                    Text(
+                        stringResource(if (settings) R.string.settings else if (warnings)
+                            R.string.profile_warning_details else R.string.app_name),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     if (settings || warnings) IconButton(onClick = { settings = false; warnings = false }) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
-                    if (!settings && !warnings) TextButton(onClick = { settings = true }) { Text(stringResource(R.string.settings)) }
+                    if (!settings && !warnings) {
+                        if (capture.status == ProxyStatus.Starting || capture.status == ProxyStatus.Running) {
+                            val running = capture.status == ProxyStatus.Running
+                            TextButton(
+                                onClick = {
+                                    if (capture.clearFailed || (running && !capture.automaticProxy)) confirmStop = true
+                                    else onStopProxy(false)
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = if (running)
+                                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary),
+                            ) {
+                                Text(stringResource(if (running) R.string.finish_capture else R.string.cancel_capture))
+                            }
+                        }
+                        TextButton(onClick = { settings = true }) { Text(stringResource(R.string.settings)) }
+                    }
                 },
             )
         },
@@ -139,19 +170,33 @@ internal fun ExportScreen(
                         profile?.warnings?.forEach { warning -> item { SelectionContainer { Text(warning) } } }
                     }
                     else -> {
-                        if (state.profile is ProfileState.Ready || state.profile is ProfileState.Failed) {
+                        if (hasProfile && !progressOnly) {
                             item(key = "profile") {
                                 ProfileSection(state.profile, state.catalog, onRetry, onRefreshAndRetry,
                                     { warnings = true }, onCopy, onSave, onShare)
                             }
                         } else item(key = "guide") {
-                            CaptureGuide(state, onStartProxy, onVerifyProxy, onProxySettings,
-                                onCopyProxyHost, onAuthorizeShizuku, onOpenShizuku,
-                                manualProxy, { manualProxy = it })
+                            Box(
+                                modifier = if (progressOnly) Modifier.fillParentMaxHeight().fillMaxWidth()
+                                    else Modifier.fillMaxWidth(),
+                                contentAlignment = if (progressOnly) Alignment.Center else Alignment.TopStart,
+                            ) {
+                                CaptureGuide(state, onStartProxy, onVerifyProxy, onProxySettings,
+                                    onCopyProxyHost, onAuthorizeShizuku, onOpenShizuku,
+                                    manualProxy, { manualProxy = it })
+                            }
                         }
-                        if (state.capture.status != ProxyStatus.Stopped) item(key = "session") {
-                            SessionControls(state.capture, onStopProxy, onProxySettings)
-                        } else if (state.profile is ProfileState.Ready || state.profile is ProfileState.Failed) item {
+
+                        if (capture.clearFailed && capture.status == ProxyStatus.Running) item(key = "cleanup") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(capture.error ?: stringResource(R.string.proxy_clear_failed),
+                                    color = MaterialTheme.colorScheme.error)
+                                OutlinedButton(onClick = { onStopProxy(false) }) {
+                                    Text(stringResource(R.string.retry_finish))
+                                }
+                            }
+                        }
+                        if (capture.status == ProxyStatus.Stopped && hasProfile) item {
                             OutlinedButton(onClick = onStartProxy, enabled = state.canStart) {
                                 Text(stringResource(R.string.guide_start_another))
                             }
@@ -161,6 +206,12 @@ internal fun ExportScreen(
             }
         }
     }
+    if (confirmStop) FinishCaptureDialog(
+        state = capture,
+        onSettings = onProxySettings,
+        onConfirm = { confirmStop = false; onStopProxy(true) },
+        onDismiss = { confirmStop = false },
+    )
 }
 
 @Composable
@@ -203,24 +254,14 @@ private fun ShizukuSection(status: ShizukuStatus, onAuthorize: () -> Unit, onOpe
 }
 
 @Composable
-private fun SessionControls(state: CaptureState, onStop: (Boolean) -> Unit, onSettings: () -> Unit) {
-    var confirmStop by rememberSaveable(state.sessionId) { mutableStateOf(false) }
-    val stopping = state.status == ProxyStatus.Stopping
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (state.clearFailed) {
-            Text(state.error ?: stringResource(R.string.proxy_clear_failed), color = MaterialTheme.colorScheme.error)
-            OutlinedButton(onClick = { onStop(false) }, enabled = !stopping) { Text(stringResource(R.string.retry_finish)) }
-        }
-        TextButton(onClick = {
-            if (state.clearFailed || (state.status == ProxyStatus.Running && !state.automaticProxy)) confirmStop = true
-            else onStop(false)
-        }, enabled = !stopping) {
-            Text(stringResource(if (stopping) R.string.proxy_stopping else if (state.status == ProxyStatus.Starting)
-                R.string.cancel_capture else R.string.finish_capture))
-        }
-    }
-    if (confirmStop) AlertDialog(
-        onDismissRequest = { confirmStop = false },
+private fun FinishCaptureDialog(
+    state: CaptureState,
+    onSettings: () -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.finish_capture)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -230,11 +271,15 @@ private fun SessionControls(state: CaptureState, onStop: (Boolean) -> Unit, onSe
             }
         },
         confirmButton = {
-            TextButton(onClick = { confirmStop = false; onStop(true) }, enabled = state.environment?.usesLocalProxy != true) {
+            TextButton(
+                onClick = onConfirm,
+                enabled = state.environment?.usesLocalProxy != true,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
                 Text(stringResource(R.string.guide_confirm_stop))
             }
         },
-        dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.cancel)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
 
@@ -249,13 +294,14 @@ private fun ProfileSection(
     onSave: (ExportedProfile) -> Unit,
     onShare: (ExportedProfile) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         when (state) {
             is ProfileState.Failed -> {
                 Text(stringResource(R.string.profile_failed), style = MaterialTheme.typography.headlineSmall)
                 SelectionContainer { Text(state.message, color = MaterialTheme.colorScheme.error) }
                 catalog.error?.takeIf { it != state.message }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(onClick = if (state.refreshSuggested) onRefreshAndRetry else onRetry, enabled = !catalog.loading) {
+                Button(onClick = if (state.refreshSuggested) onRefreshAndRetry else onRetry,
+                    enabled = !catalog.loading, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(if (state.refreshSuggested) R.string.refresh_and_retry else R.string.retry_export))
                 }
                 TextButton(onClick = if (state.refreshSuggested) onRetry else onRefreshAndRetry, enabled = !catalog.loading) {
@@ -265,20 +311,61 @@ private fun ProfileSection(
             }
             is ProfileState.Ready -> {
                 val profile = state.profile
-                Text(stringResource(R.string.profile_title), style = MaterialTheme.typography.headlineSmall)
-                ListItem(headlineContent = { SelectionContainer { Text(profile.name) } },
-                    supportingContent = { Text(stringResource(R.string.profile_summary, profile.cardCount, profile.areaItemCount, profile.potentialCount)) })
-                Button(onClick = { onCopy(profile) }) { Text(stringResource(R.string.copy_profile)) }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onSave(profile) }) { Text(stringResource(R.string.save_profile)) }
-                    TextButton(onClick = { onShare(profile) }) { Text(stringResource(R.string.share_profile)) }
+                val largeText = LocalDensity.current.fontScale >= 1.5f
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.profile_title), style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SelectionContainer { Text(profile.name, style = MaterialTheme.typography.headlineMedium) }
                 }
-                if (profile.warnings.isNotEmpty()) ListItem(
-                    headlineContent = { Text(stringResource(R.string.profile_warnings, profile.warnings.size)) },
-                    trailingContent = { TextButton(onClick = onWarnings) { Text(stringResource(R.string.view)) } },
-                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = if (largeText) 1 else 3,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ProfileStat(R.string.profile_cards, profile.cardCount, Modifier.widthIn(min = 76.dp).weight(1f))
+                    ProfileStat(R.string.profile_area_items, profile.areaItemCount, Modifier.widthIn(min = 76.dp).weight(1f))
+                    ProfileStat(R.string.profile_potentials, profile.potentialCount, Modifier.widthIn(min = 76.dp).weight(1f))
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onCopy(profile) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.copy_profile))
+                    }
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        maxItemsInEachRow = if (largeText) 1 else 2,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(onClick = { onSave(profile) }, modifier = Modifier.widthIn(min = 128.dp).weight(1f)) {
+                            Text(stringResource(R.string.save_profile))
+                        }
+                        OutlinedButton(onClick = { onShare(profile) }, modifier = Modifier.widthIn(min = 128.dp).weight(1f)) {
+                            Text(stringResource(R.string.share_profile))
+                        }
+                    }
+                }
+                if (profile.warnings.isNotEmpty()) {
+                    HorizontalDivider()
+                    ListItem(
+                        modifier = Modifier.clickable(role = Role.Button, onClick = onWarnings),
+                        headlineContent = { Text(stringResource(R.string.profile_warnings, profile.warnings.size)) },
+                        trailingContent = {
+                            Text(stringResource(R.string.view), color = MaterialTheme.colorScheme.primary)
+                        },
+                    )
+                }
             }
             ProfileState.Parsing, ProfileState.Empty -> Unit
         }
+    }
+}
+
+@Composable
+private fun ProfileStat(label: Int, count: Int, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(count.toString(), style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(label), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
