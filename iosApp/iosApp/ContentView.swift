@@ -3,9 +3,12 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    private enum Destination: Hashable { case warnings }
+
     let app: AppModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var navigationPath: [String] = []
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var navigationPath: [Destination] = []
     @State private var showSettings = false
     @State private var showFinish = false
     @State private var copied = false
@@ -17,34 +20,39 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ScrollViewReader { reader in
-                Form {
-                    if !hasProfile || app.phase == .stopping {
-                        CaptureGuideSection(app: app).id("task")
-                    }
-                    if hasProfile { profileSection.id("result") }
-                    if app.sessionActive && app.phase != .stopping {
-                        Section {
-                            Button(app.capture.phase == .running ? "结束获取" : "取消获取") {
-                                if app.capture.phase == .running { showFinish = true }
-                                else { Task { await app.stopSession() } }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        if showsResult {
+                            profileContent
+                            if app.canStart {
+                                Button(action: app.startSession) {
+                                    Label("重新获取存档", systemImage: "arrow.clockwise")
+                                        .frame(minHeight: 44)
+                                }
+                                .buttonStyle(.borderless)
                             }
+                        } else {
+                            CaptureGuideView(app: app)
                         }
-                    } else if hasProfile && app.canStart {
-                        Section { Button("重新获取存档", action: app.startSession) }
                     }
+                    .frame(maxWidth: 520, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: .infinity)
+                    .id("content")
                 }
+                .defaultScrollAnchor(app.stage.isIndeterminateProgress ? .center : .top, for: .alignment)
+                .onChange(of: app.stage) { _, _ in reader.scrollTo("content", anchor: .top) }
                 .onChange(of: app.notifications.focusRequest) { _, _ in
                     navigationPath.removeAll()
                     showSettings = false
                     showFinish = false
-                    withAnimation { reader.scrollTo(hasProfile ? "result" : "task", anchor: .top) }
-                }
-                .onChange(of: hasProfile) { _, ready in
-                    if ready { withAnimation { reader.scrollTo("result", anchor: .top) } }
+                    reader.scrollTo("content", anchor: .top)
                 }
             }
             .navigationTitle("Garupa Export")
-            .navigationDestination(for: String.self) { _ in
+            .navigationBarTitleDisplayMode(dynamicTypeSize.isAccessibilitySize ? .inline : .large)
+            .navigationDestination(for: Destination.self) { _ in
                 List {
                     if case .ready(let profile) = app.profiles.state {
                         ForEach(profile.warnings.indices, id: \.self) { index in
@@ -56,6 +64,14 @@ struct ContentView: View {
                 .navigationBarTitleDisplayMode(.inline)
             }
             .toolbar {
+                if app.sessionActive && app.phase != .stopping {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(app.capture.phase == .running ? "结束获取" : "取消获取") {
+                            if app.capture.phase == .running { showFinish = true }
+                            else { Task { await app.stopSession() } }
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("设置", systemImage: "gearshape") { showSettings = true }
                 }
@@ -68,28 +84,37 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showFinish) {
                 NavigationStack {
-                    Form {
-                        Section {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
                             Text("设置 → Wi-Fi → 原网络 → 配置代理 → 关闭。")
+                                .font(.headline)
                             Text("切换网络不会清除原 Wi-Fi 的代理设置。")
                                 .foregroundStyle(.secondary)
-                        }
-                        Section {
-                            Button("已关闭代理，结束获取") {
-                                showFinish = false
-                                Task { await app.stopSession() }
-                            }
-                            .disabled(app.capture.environment?.route == .local)
                             if app.capture.environment?.route == .local {
-                                Text("当前网络仍使用本地代理，请先关闭。")
+                                Label("当前网络仍使用本地代理，请先关闭。", systemImage: "exclamationmark.triangle")
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
+                            Button {
+                                showFinish = false
+                                Task { await app.stopSession() }
+                            } label: {
+                                Text("已关闭代理，结束获取")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .disabled(app.capture.environment?.route == .local)
                         }
+                        .frame(maxWidth: 520, alignment: .leading)
+                        .padding(24)
+                        .frame(maxWidth: .infinity)
                     }
                     .navigationTitle("结束获取")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { showFinish = false } } }
                 }
+                .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
             }
             .fileExporter(isPresented: $saving,
                           document: profileToSave.map { ProfileFile(json: $0.json) },
@@ -133,51 +158,74 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var profileSection: some View {
+    private var profileContent: some View {
         switch app.profiles.state {
         case .ready(let profile):
-            Section("Bestdori 档案") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(profile.name).font(.headline)
-                    Text("卡牌 \(profile.cardCount) · 区域道具 \(profile.areaItemCount) · 潜能 \(profile.potentialCount)")
-                        .font(.subheadline).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Bestdori 档案")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(profile.name)
+                        .font(.title.bold())
+                        .accessibilityAddTraits(.isHeader)
+                        .textSelection(.enabled)
                 }
-                .textSelection(.enabled)
-                Button {
-                    UIPasteboard.general.string = profile.json
-                    copied = true
-                } label: {
-                    Label(copied ? "已复制" : "复制档案", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .frame(maxWidth: .infinity)
+                profileCounts(profile)
+                VStack(spacing: 10) {
+                    Button {
+                        UIPasteboard.general.string = profile.json
+                        copied = true
+                    } label: {
+                        Label(copied ? "已复制" : "复制档案", systemImage: copied ? "checkmark" : "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    fileActions(profile)
                 }
-                .buttonStyle(.borderedProminent)
-                Button {
-                    guard !saving else { return }
-                    profileToSave = profile
-                    saving = true
-                } label: {
-                    Label(saved ? "已保存" : "保存文件", systemImage: saved ? "checkmark" : "square.and.arrow.down")
-                }
-                .disabled(saving)
-                ShareLink(item: profile.url) { Label("分享", systemImage: "square.and.arrow.up") }
+                .controlSize(.large)
                 if !profile.warnings.isEmpty {
-                    NavigationLink(value: "warnings") {
-                        Label("转换提示（\(profile.warnings.count)）", systemImage: "exclamationmark.triangle")
+                    VStack(spacing: 8) {
+                        Divider()
+                        NavigationLink(value: Destination.warnings) {
+                            HStack {
+                                Label("转换提示（\(profile.warnings.count)）", systemImage: "exclamationmark.triangle")
+                                Spacer()
+                                Image(systemName: "chevron.forward")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(Color.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
                     }
                 }
             }
         case .failed(let message, let refreshSuggested):
-            Section("档案生成失败") {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(app.stage.title)
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
                 if let error = app.catalog.error, error != message { Text(error).foregroundStyle(.red) }
-                Button(refreshSuggested ? "刷新数据并重试" : "重新解析") {
+                Button {
                     app.profiles.retry(refreshCatalog: refreshSuggested)
+                } label: {
+                    Text(refreshSuggested ? "刷新数据并重试" : "重新解析")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(app.catalog.loading)
-                Button(refreshSuggested ? "重新解析" : "刷新数据并重试") {
+                Button {
                     app.profiles.retry(refreshCatalog: !refreshSuggested)
+                } label: {
+                    Text(refreshSuggested ? "重新解析" : "刷新数据并重试")
+                        .frame(minHeight: 44)
                 }
+                .buttonStyle(.borderless)
                 .disabled(app.catalog.loading)
                 if app.catalog.loading { ProgressView("正在刷新卡牌数据") }
             }
@@ -186,12 +234,62 @@ struct ContentView: View {
         }
     }
 
-    private var hasProfile: Bool {
-        switch app.profiles.state {
-        case .ready, .failed: return true
-        case .empty, .parsing: return false
+    private func profileCounts(_ profile: ProfileDocument) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        return layout {
+            profileCount("卡牌", count: profile.cardCount)
+            profileCount("区域道具", count: profile.areaItemCount)
+            profileCount("潜能", count: profile.potentialCount)
         }
     }
+
+    @ViewBuilder
+    private func profileCount(_ title: LocalizedStringKey, count: Int) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            LabeledContent(title) {
+                Text(count, format: .number).monospacedDigit()
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(count, format: .number)
+                    .font(.title3.weight(.semibold).monospacedDigit())
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(title))
+            .accessibilityValue(Text(count, format: .number))
+        }
+    }
+
+    private func fileActions(_ profile: ProfileDocument) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            Button {
+                guard !saving else { return }
+                profileToSave = profile
+                saving = true
+            } label: {
+                Label(saved ? "已保存" : "保存文件", systemImage: saved ? "checkmark" : "square.and.arrow.down")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(saving)
+            ShareLink(item: profile.url) {
+                Label("分享", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private var showsResult: Bool { app.stage == .complete || app.stage == .conversionFailed }
 
     private var profileID: UUID? {
         if case .ready(let profile) = app.profiles.state { return profile.id }
@@ -204,10 +302,14 @@ private struct ExportSettingsView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Form {
+        List {
             Section("Bestdori 卡牌数据") {
-                LabeledContent("状态", value: catalogStatus)
-                if app.catalog.loading { ProgressView() }
+                LabeledContent("状态") {
+                    HStack {
+                        if app.catalog.loading { ProgressView().accessibilityHidden(true) }
+                        Text(catalogStatus)
+                    }
+                }
                 if let cache = app.catalog.cache {
                     LabeledContent("卡牌", value: "\(cache.cardCount) 张")
                     LabeledContent("最近更新") {
@@ -236,6 +338,7 @@ private struct ExportSettingsView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
     }

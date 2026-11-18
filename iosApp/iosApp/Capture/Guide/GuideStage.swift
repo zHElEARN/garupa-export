@@ -45,4 +45,11 @@ enum GuideStage: String {
         default: return false
         }
     }
+
+    var isIndeterminateProgress: Bool {
+        switch self {
+        case .preparing, .startingProxy, .verifyingProxy, .generating, .stopping: return true
+        default: return false
+        }
+    }
 }
