@@ -247,6 +247,7 @@ final class AppModel {
     }
 
     private func publishStage() {
-        notifications.transition(to: stage, sessionID: sessionID)
+        notifications.transition(to: stage, certificateTrusted: certificates.trustedAuthority != nil,
+                                 proxyVerified: capture.proxyVerified, sessionID: sessionID)
     }
 }

@@ -7,6 +7,8 @@ import UserNotifications
 @MainActor
 @Observable
 final class CaptureNotifications: NSObject, UNUserNotificationCenterDelegate {
+    private enum SetupProgress { case certificateTrusted, proxyVerified }
+
     static let shared = CaptureNotifications()
     private static let identifier = "garupa.capture.milestone"
     private let center = UNUserNotificationCenter.current()
@@ -15,6 +17,7 @@ final class CaptureNotifications: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: ((UUID?) -> Void)?
     var appVisible = true
     private var lastStage: GuideStage?
+    private var setupProgress: SetupProgress?
     private var sessionID: UUID?
     private var delivery: Task<Void, Never>?
 
@@ -38,15 +41,18 @@ final class CaptureNotifications: NSObject, UNUserNotificationCenterDelegate {
         delivery?.cancel()
         sessionID = id
         lastStage = nil
+        setupProgress = nil
         center.removePendingNotificationRequests(withIdentifiers: [Self.identifier])
         center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
     }
 
-    func transition(to stage: GuideStage, sessionID id: UUID?) {
-        guard let id, sessionID == id, lastStage != stage else { return }
+    func transition(to stage: GuideStage, certificateTrusted: Bool, proxyVerified: Bool, sessionID id: UUID?) {
+        guard let id, sessionID == id else { return }
+        let setupMessage = setupNotification(for: stage, certificateTrusted: certificateTrusted, proxyVerified: proxyVerified)
+        guard lastStage != stage || setupMessage != nil else { return }
         lastStage = stage
         delivery?.cancel()
-        guard let message = stage.milestoneNotification, enabled, !appVisible else { return }
+        guard let message = setupMessage ?? stage.milestoneNotification, enabled, !appVisible else { return }
         delivery = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(250)) }
             catch { return }
@@ -61,10 +67,24 @@ final class CaptureNotifications: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    private func setupNotification(for stage: GuideStage, certificateTrusted: Bool,
+                                   proxyVerified: Bool) -> (title: String, body: String)? {
+        let body = "请返回 Garupa Export 查看下一步。"
+        if proxyVerified, setupProgress != .proxyVerified {
+            setupProgress = .proxyVerified
+            if stage == .waitingForGame { return ("代理设置已完成", body) }
+        } else if certificateTrusted, stage == .configureProxy, setupProgress == nil {
+            setupProgress = .certificateTrusted
+            return ("证书已受信任", body)
+        }
+        return nil
+    }
+
     func endSession() {
         delivery?.cancel()
         sessionID = nil
         lastStage = nil
+        setupProgress = nil
         center.removePendingNotificationRequests(withIdentifiers: [Self.identifier])
         center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
     }

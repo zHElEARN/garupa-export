@@ -40,8 +40,6 @@ enum GuideStage: String {
 
     var milestoneNotification: (title: String, body: String)? {
         switch self {
-        case .configureProxy: return ("证书已受信任", "请返回 Garupa Export 查看下一步。")
-        case .waitingForGame: return ("代理设置已完成", "请返回 Garupa Export 查看下一步。")
         case .complete, .conversionFailed, .backgroundRequired, .startFailed: return (title, description)
         default: return nil
         }
